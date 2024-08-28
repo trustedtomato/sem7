@@ -9,6 +9,7 @@ Code for our semester 7 project.
     PASS=<AAU-password>
     ```
 3. Run `./run.sh` to run [ws/main.py](ws/main.py) which is the main file for the project. 
-    1. `run.sh` will sync the [ws](ws) folder to the AAU AI Lab frontend, and then will ssh into the frontend and run `main.sh`.
-    2. `main.sh` will run the [ws/main.py](ws/main.py) file inside a pytorch container.
-    3. [ws/results](ws/results) will be synced back to the local machine.
+    1. `run.sh` will sync the [ws](ws) folder to the AAU AI Lab frontend
+    2. `run.sh` will SSH into the frontend and run `main.sh`.
+    3. `main.sh` will run the [ws/main.py](ws/main.py) file inside a pytorch container.
+    4. [ws/results](ws/results) will be synced back to the local machine.
