@@ -15,6 +15,9 @@ REMOTE_COMMAND="${1:-$REMOTE_COMMAND}"
 # Check the existence of used environment variables
 TEMP="$HOME $WS_PATH $WS_RESULTS_PATH $USER $HOST $REMOTE_PROJECT_PATH $REMOTE_COMMAND"
 
+# Make remote target directory
+ssh -o "ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p" $USER@$HOST mkdir -p $REMOTE_PROJECT_PATH/$WS_PATH
+
 # Sync from local to remote
 rsync -e "ssh -o 'ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p'" -avzP --delete --exclude-from=.rsyncignore $WS_PATH/ $USER@$HOST:$REMOTE_PROJECT_PATH/$WS_PATH
 
