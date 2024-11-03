@@ -1,29 +1,24 @@
+from typing_extensions import override
 import clip
-import os
 from torch import nn
-import numpy as np
 import torch
 import torch.nn.functional as nnf
-import sys
-from typing import Tuple, List, Union, Optional
-from transformers import (
-    GPT2Tokenizer,
-    GPT2LMHeadModel,
-    AdamW,
-    get_linear_schedule_with_warmup,
-)
+from typing import Optional
+from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
+from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 import skimage.io as io
 import PIL.Image
 
 T = torch.Tensor
 
 class MLP(nn.Module):
+    @override
     def forward(self, x: T) -> T:
         return self.model(x)
 
-    def __init__(self, sizes: Tuple[int, ...], bias=True, act=nn.Tanh):
-        super(MLP, self).__init__()
-        layers = []
+    def __init__(self, sizes: tuple[int, ...], bias=True, act=nn.Tanh):
+        super().__init__()
+        layers: list[nn.Module] = []
         for i in range(len(sizes) - 1):
             layers.append(nn.Linear(sizes[i], sizes[i + 1], bias=bias))
             if i < len(sizes) - 2:
@@ -39,6 +34,7 @@ class ClipCaptionModel(nn.Module):
             batch_size, self.prefix_length, dtype=torch.int64, device=device
         )
 
+    @override
     def forward(
         self, tokens: T, prefix: T, mask: Optional[T] = None, labels: Optional[T] = None
     ):
