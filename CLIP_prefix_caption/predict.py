@@ -15,19 +15,7 @@ from transformers import (
 import skimage.io as io
 import PIL.Image
 
-N = type(None)
-V = np.array
-ARRAY = np.ndarray
-ARRAYS = Union[Tuple[ARRAY, ...], List[ARRAY]]
-VS = Union[Tuple[V, ...], List[V]]
-VN = Union[V, N]
-VNS = Union[VS, N]
 T = torch.Tensor
-TS = Union[Tuple[T, ...], List[T]]
-TN = Optional[T]
-TNS = Union[Tuple[TN, ...], List[TN]]
-TSN = Optional[TS]
-TA = Union[T, ARRAY]
 
 class MLP(nn.Module):
     def forward(self, x: T) -> T:
@@ -165,14 +153,13 @@ clip_model, preprocess = clip.load("ViT-B/32", device=device, jit=False)
 tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 prefix_length = 10
 
-weights_path = "coco", "coco_train/coco_prefix-009.pt"
+weights_path = "coco_train/coco_prefix-009.pt"
 model = ClipCaptionModel(prefix_length)
 model.load_state_dict(torch.load(weights_path, map_location=torch.device("cpu")))
 model = model.eval()
 model = model.to(device)
 
 image = "data/coco/train2014/COCO_train2014_000000116100.jpg"
-model = "coco"
 use_beam_search = True
 
 # predict
@@ -186,3 +173,4 @@ with torch.no_grad():
     prefix_embed = model.clip_project(prefix).reshape(1, prefix_length, -1)
 
 x = generate2(model, tokenizer, embed=prefix_embed)
+print(x)
