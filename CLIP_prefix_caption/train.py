@@ -3,20 +3,17 @@ import torch.nn as nn
 from torch.nn import functional as nnf
 from torch.utils.data import Dataset, DataLoader
 from enum import Enum
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, AdamW, get_linear_schedule_with_warmup
+from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
+from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
+from transformers.optimization import get_linear_schedule_with_warmup
+from torch.optim.adamw import AdamW
 from tqdm import tqdm
 import os
 import pickle
 import sys
 import argparse
 import json
-from typing import Tuple, Optional, Union
-
-
-class MappingType(Enum):
-    MLP = 'mlp'
-    Transformer = 'transformer'
-
+from typing import Tuple, Optional
 
 class ClipCocoDataset(Dataset):
 
@@ -74,22 +71,6 @@ class ClipCocoDataset(Dataset):
                 pickle.dump([self.captions_tokens, self.caption2embedding, max_seq_len], f)
         all_len = torch.tensor([len(self.captions_tokens[i]) for i in range(len(self))]).float()
         self.max_seq_len = min(int(all_len.mean() + all_len.std() * 10), int(all_len.max()))
-
-
-class MLP(nn.Module):
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
-
-    def __init__(self, sizes: Tuple[int, ...], bias=True, act=nn.Tanh):
-        super(MLP, self).__init__()
-        layers = []
-        for i in range(len(sizes) - 1):
-            layers.append(nn.Linear(sizes[i], sizes[i + 1], bias=bias))
-            if i < len(sizes) - 2:
-                layers.append(act())
-        self.model = nn.Sequential(*layers)
-
 
 class MlpTransformer(nn.Module):
     def __init__(self, in_dim, h_dim, out_d: Optional[int] = None, act=nnf.relu, dropout=0.):
@@ -240,15 +221,13 @@ class ClipCaptionModel(nn.Module):
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
         return out
 
-    def __init__(self, prefix_length: int, clip_length: Optional[int] = None, prefix_size: int = 512,
-                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP):
+    def __init__(self, prefix_length: int, clip_length: int, prefix_size: int = 512,
+                 num_layers: int = 8):
         super(ClipCaptionModel, self).__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained('gpt2')
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
-                                                                     clip_length, num_layers)
-
+        self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length, clip_length, num_layers)
 
 class ClipCaptionPrefix(ClipCaptionModel):
 
@@ -270,27 +249,6 @@ def save_config(args: argparse.Namespace):
         json.dump(config, outfile)
 
 
-def load_model(config_path: str, epoch_or_latest: Union[str, int] = '_latest'):
-    with open(config_path) as f:
-        config = json.load(f)
-    parser = argparse.ArgumentParser()
-    parser.set_defaults(**config)
-    args = parser.parse_args()
-    if type(epoch_or_latest) is int:
-        epoch_or_latest = f"-{epoch_or_latest:03d}"
-    model_path = os.path.join(args.out_dir, f"{args.prefix}{epoch_or_latest}.pt")
-    if args.only_prefix:
-        model = ClipCaptionPrefix(args.prefix_length)
-    else:
-        model = ClipCaptionModel(args.prefix_length)
-    if os.path.isfile(model_path):
-        print(f"loading model from {model_path}")
-        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-    else:
-        print(f"{model_path} is not exist")
-    return model, parser
-
-
 def train(dataset: ClipCocoDataset, model: ClipCaptionModel, args,
           lr: float = 2e-5, warmup_steps: int = 5000, output_dir: str = ".", output_prefix: str = ""):
 
@@ -308,6 +266,7 @@ def train(dataset: ClipCocoDataset, model: ClipCaptionModel, args,
     )
     # save_config(args)
     for epoch in range(epochs):
+
         print(f">>> Training epoch {epoch}")
         progress = tqdm(total=len(train_dataloader), desc=output_prefix)
         for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
@@ -347,22 +306,20 @@ def main():
     parser.add_argument('--prefix_length_clip', type=int, default=8)
     parser.add_argument('--bs', type=int, default=40)
     parser.add_argument('--only_prefix', dest='only_prefix', action='store_true')
-    parser.add_argument('--mapping_type', type=str, default='transformer', help='mlp/transformer')
-    parser.add_argument('--num_layers', type=int, default=4)
+    parser.add_argument('--num_layers', type=int, default=8)
     parser.add_argument('--is_rn', dest='is_rn', action='store_true')
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
     args = parser.parse_args()
     prefix_length = args.prefix_length
     dataset = ClipCocoDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix)
     prefix_dim = 640 if args.is_rn else 512
-    args.mapping_type = {'mlp': MappingType.MLP, 'transformer': MappingType.Transformer}[args.mapping_type]
     if args.only_prefix:
         model = ClipCaptionPrefix(prefix_length, clip_length=args.prefix_length_clip, prefix_size=prefix_dim,
-                                  num_layers=args.num_layers, mapping_type=args.mapping_type)
+                                  num_layers=args.num_layers)
         print("Train only prefix")
     else:
         model = ClipCaptionModel(prefix_length, clip_length=args.prefix_length_clip, prefix_size=prefix_dim,
-                                  num_layers=args.num_layers, mapping_type=args.mapping_type)
+                                  num_layers=args.num_layers)
         print("Train both prefix and GPT")
     train(dataset, model, args, output_dir=args.out_dir, output_prefix=args.prefix)
 
