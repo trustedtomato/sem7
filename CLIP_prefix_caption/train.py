@@ -54,7 +54,6 @@ class ClipCocoDataset(Dataset):
         with open(data_path, 'rb') as f:
             all_data = pickle.load(f)
         print("Data size is %0d" % len(all_data["clip_embedding"]))
-        sys.stdout.flush()
         self.prefixes = all_data["clip_embedding"]
         captions_raw = all_data["captions"]
         self.image_ids = [caption["image_id"] for caption in captions_raw]
@@ -204,9 +203,17 @@ class TransformerMapper(nn.Module):
 
     def forward(self, x):
         x = self.linear(x).view(x.shape[0], self.clip_length, -1)
-        prefix = self.prefix_const.unsqueeze(0).expand(x.shape[0], *self.prefix_const.shape)
+        print("x shape: ", x.shape)
+        prefix = self.prefix_const.unsqueeze(0)
+        print("prefix shape: ", prefix.shape)
+        prefix = prefix.expand(x.shape[0], *self.prefix_const.shape)
+        print("prefix shape after expand: ", prefix.shape)
         prefix = torch.cat((x, prefix), dim=1)
-        out = self.transformer(prefix)[:, self.clip_length:]
+        print("prefix shape after cat: ", prefix.shape)
+        out = self.transformer(prefix)
+        print("out shape: ", out.shape)
+        out = out[:, self.clip_length:]
+        print("out shape after slicing: ", out.shape)
         return out
 
     def __init__(self, dim_clip: int, dim_embedding: int, prefix_length: int, clip_length: int, num_layers: int = 8):
@@ -239,11 +246,7 @@ class ClipCaptionModel(nn.Module):
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained('gpt2')
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        if mapping_type == MappingType.MLP:
-            self.clip_project = MLP((prefix_size, (self.gpt_embedding_size * prefix_length) // 2,
-                                     self.gpt_embedding_size * prefix_length))
-        else:
-            self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
+        self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
                                                                      clip_length, num_layers)
 
 
@@ -299,14 +302,13 @@ def train(dataset: ClipCocoDataset, model: ClipCaptionModel, args,
     model = model.to(device)
     model.train()
     optimizer = AdamW(model.parameters(), lr=lr)
-    train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=warmup_steps, num_training_steps=epochs * len(train_dataloader)
     )
     # save_config(args)
     for epoch in range(epochs):
         print(f">>> Training epoch {epoch}")
-        sys.stdout.flush()
         progress = tqdm(total=len(train_dataloader), desc=output_prefix)
         for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
             model.zero_grad()
@@ -339,14 +341,14 @@ def main():
     parser.add_argument('--data', default='./data/coco/oscar_split_train.pkl')
     parser.add_argument('--out_dir', default='./checkpoints')
     parser.add_argument('--prefix', default='coco_prefix', help='prefix for saved filenames')
-    parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--save_every', type=int, default=1)
+    parser.add_argument('--epochs', type=int, default=2)
+    parser.add_argument('--save_every', type=int, default=10)
     parser.add_argument('--prefix_length', type=int, default=10)
-    parser.add_argument('--prefix_length_clip', type=int, default=10)
+    parser.add_argument('--prefix_length_clip', type=int, default=8)
     parser.add_argument('--bs', type=int, default=40)
     parser.add_argument('--only_prefix', dest='only_prefix', action='store_true')
-    parser.add_argument('--mapping_type', type=str, default='mlp', help='mlp/transformer')
-    parser.add_argument('--num_layers', type=int, default=8)
+    parser.add_argument('--mapping_type', type=str, default='transformer', help='mlp/transformer')
+    parser.add_argument('--num_layers', type=int, default=4)
     parser.add_argument('--is_rn', dest='is_rn', action='store_true')
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
     args = parser.parse_args()
@@ -362,7 +364,6 @@ def main():
         model = ClipCaptionModel(prefix_length, clip_length=args.prefix_length_clip, prefix_size=prefix_dim,
                                   num_layers=args.num_layers, mapping_type=args.mapping_type)
         print("Train both prefix and GPT")
-        sys.stdout.flush()
     train(dataset, model, args, output_dir=args.out_dir, output_prefix=args.prefix)
 
 
