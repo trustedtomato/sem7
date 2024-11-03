@@ -10,7 +10,7 @@ import argparse
 
 
 def main(clip_model_type: str):
-    device = torch.device('cuda:0')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     clip_model_name = clip_model_type.replace('/', '_')
     out_path = f"./data/coco/oscar_split_{clip_model_name}_train.pkl"
     clip_model, preprocess = clip.load(clip_model_type, device=device, jit=False)
@@ -32,12 +32,12 @@ def main(clip_model_type: str):
         d["clip_embedding"] = i
         all_embeddings.append(prefix)
         all_captions.append(d)
-        if (i + 1) % 10000 == 0:
-            with open(out_path, 'wb') as f:
-                pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
 
     with open(out_path, 'wb') as f:
-        pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
+        obj = {"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}
+        print('Saving:', obj)
+        print('clip_embeding_shape:', obj['clip_embedding'].shape)
+        pickle.dump(obj, f)
 
     print('Done')
     print("%0d embeddings saved " % len(all_embeddings))

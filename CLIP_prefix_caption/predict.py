@@ -1,6 +1,3 @@
-# Prediction interface for Cog ⚙️
-# Reference: https://github.com/replicate/cog/blob/main/docs/python.md
-
 import clip
 import os
 from torch import nn
@@ -18,10 +15,6 @@ from transformers import (
 import skimage.io as io
 import PIL.Image
 
-import cog
-
-# import torch
-
 N = type(None)
 V = np.array
 ARRAY = np.ndarray
@@ -35,64 +28,6 @@ TN = Optional[T]
 TNS = Union[Tuple[TN, ...], List[TN]]
 TSN = Optional[TS]
 TA = Union[T, ARRAY]
-
-WEIGHTS_PATHS = {
-    "coco": "coco_weights.pt",
-    "conceptual-captions": "conceptual_weights.pt",
-}
-
-D = torch.device
-CPU = torch.device("cpu")
-
-
-class Predictor(cog.Predictor):
-    def setup(self):
-        """Load the model into memory to make running multiple predictions efficient"""
-        self.device = torch.device("cuda")
-        self.clip_model, self.preprocess = clip.load(
-            "ViT-B/32", device=self.device, jit=False
-        )
-        self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-
-        self.models = {}
-        self.prefix_length = 10
-        for key, weights_path in WEIGHTS_PATHS.items():
-            model = ClipCaptionModel(self.prefix_length)
-            model.load_state_dict(torch.load(weights_path, map_location=CPU))
-            model = model.eval()
-            model = model.to(self.device)
-            self.models[key] = model
-
-    @cog.input("image", type=cog.Path, help="Input image")
-    @cog.input(
-        "model",
-        type=str,
-        options=WEIGHTS_PATHS.keys(),
-        default="coco",
-        help="Model to use",
-    )
-    @cog.input(
-        "use_beam_search",
-        type=bool,
-        default=False,
-        help="Whether to apply beam search to generate the output text",
-    )
-    def predict(self, image, model, use_beam_search):
-        """Run a single prediction on the model"""
-        image = io.imread(image)
-        model = self.models[model]
-        pil_image = PIL.Image.fromarray(image)
-        image = self.preprocess(pil_image).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            prefix = self.clip_model.encode_image(image).to(
-                self.device, dtype=torch.float32
-            )
-            prefix_embed = model.clip_project(prefix).reshape(1, self.prefix_length, -1)
-        if use_beam_search:
-            return generate_beam(model, self.tokenizer, embed=prefix_embed)[0]
-        else:
-            return generate2(model, self.tokenizer, embed=prefix_embed)
-
 
 class MLP(nn.Module):
     def forward(self, x: T) -> T:
@@ -111,7 +46,7 @@ class MLP(nn.Module):
 class ClipCaptionModel(nn.Module):
 
     # @functools.lru_cache #FIXME
-    def get_dummy_token(self, batch_size: int, device: D) -> T:
+    def get_dummy_token(self, batch_size: int, device: torch.device) -> T:
         return torch.zeros(
             batch_size, self.prefix_length, dtype=torch.int64, device=device
         )
@@ -159,83 +94,6 @@ class ClipCaptionPrefix(ClipCaptionModel):
         super(ClipCaptionPrefix, self).train(mode)
         self.gpt.eval()
         return self
-
-
-def generate_beam(
-    model,
-    tokenizer,
-    beam_size: int = 5,
-    prompt=None,
-    embed=None,
-    entry_length=67,
-    temperature=1.0,
-    stop_token: str = ".",
-):
-
-    model.eval()
-    stop_token_index = tokenizer.encode(stop_token)[0]
-    tokens = None
-    scores = None
-    device = next(model.parameters()).device
-    seq_lengths = torch.ones(beam_size, device=device)
-    is_stopped = torch.zeros(beam_size, device=device, dtype=torch.bool)
-    with torch.no_grad():
-        if embed is not None:
-            generated = embed
-        else:
-            if tokens is None:
-                tokens = torch.tensor(tokenizer.encode(prompt))
-                tokens = tokens.unsqueeze(0).to(device)
-                generated = model.gpt.transformer.wte(tokens)
-        for i in range(entry_length):
-            outputs = model.gpt(inputs_embeds=generated)
-            logits = outputs.logits
-            logits = logits[:, -1, :] / (temperature if temperature > 0 else 1.0)
-            logits = logits.softmax(-1).log()
-            if scores is None:
-                scores, next_tokens = logits.topk(beam_size, -1)
-                generated = generated.expand(beam_size, *generated.shape[1:])
-                next_tokens, scores = next_tokens.permute(1, 0), scores.squeeze(0)
-                if tokens is None:
-                    tokens = next_tokens
-                else:
-                    tokens = tokens.expand(beam_size, *tokens.shape[1:])
-                    tokens = torch.cat((tokens, next_tokens), dim=1)
-            else:
-                logits[is_stopped] = -float(np.inf)
-                logits[is_stopped, 0] = 0
-                scores_sum = scores[:, None] + logits
-                seq_lengths[~is_stopped] += 1
-                scores_sum_average = scores_sum / seq_lengths[:, None]
-                scores_sum_average, next_tokens = scores_sum_average.view(-1).topk(
-                    beam_size, -1
-                )
-                next_tokens_source = next_tokens // scores_sum.shape[1]
-                seq_lengths = seq_lengths[next_tokens_source]
-                next_tokens = next_tokens % scores_sum.shape[1]
-                next_tokens = next_tokens.unsqueeze(1)
-                tokens = tokens[next_tokens_source]
-                tokens = torch.cat((tokens, next_tokens), dim=1)
-                generated = generated[next_tokens_source]
-                scores = scores_sum_average * seq_lengths
-                is_stopped = is_stopped[next_tokens_source]
-            next_token_embed = model.gpt.transformer.wte(next_tokens.squeeze()).view(
-                generated.shape[0], 1, -1
-            )
-            generated = torch.cat((generated, next_token_embed), dim=1)
-            is_stopped = is_stopped + next_tokens.eq(stop_token_index).squeeze()
-            if is_stopped.all():
-                break
-    scores = scores / seq_lengths
-    output_list = tokens.cpu().numpy()
-    output_texts = [
-        tokenizer.decode(output[: int(length)])
-        for output, length in zip(output_list, seq_lengths)
-    ]
-    order = scores.argsort(descending=True)
-    output_texts = [output_texts[i] for i in order]
-    return output_texts
-
 
 def generate2(
     model,
@@ -300,3 +158,31 @@ def generate2(
             generated_list.append(output_text)
 
     return generated_list[0]
+
+# setup
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+clip_model, preprocess = clip.load("ViT-B/32", device=device, jit=False)
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+prefix_length = 10
+
+weights_path = "coco", "coco_train/coco_prefix-009.pt"
+model = ClipCaptionModel(prefix_length)
+model.load_state_dict(torch.load(weights_path, map_location=torch.device("cpu")))
+model = model.eval()
+model = model.to(device)
+
+image = "data/coco/train2014/COCO_train2014_000000116100.jpg"
+model = "coco"
+use_beam_search = True
+
+# predict
+image = io.imread(image)
+pil_image = PIL.Image.fromarray(image)
+image = preprocess(pil_image).unsqueeze(0).to(device)
+with torch.no_grad():
+    prefix = clip_model.encode_image(image).to(
+        device, dtype=torch.float32
+    )
+    prefix_embed = model.clip_project(prefix).reshape(1, prefix_length, -1)
+
+x = generate2(model, tokenizer, embed=prefix_embed)

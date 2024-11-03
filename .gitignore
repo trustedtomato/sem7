@@ -1,4 +1,5 @@
 # Byte-compiled / optimized / DLL files
+CLIP_prefix_caption/coco_train
 __pycache__/
 *.py[cod]
 *$py.class
