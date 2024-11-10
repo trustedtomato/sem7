@@ -1,0 +1,4 @@
+{
+    "basedpyright.analysis.typeCheckingMode": "standard",
+    "editor.inlayHints.enabled": "offUnlessPressed"
+} 
