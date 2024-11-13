@@ -12,6 +12,7 @@ import PIL.Image
 
 T = torch.Tensor
 
+
 def generate2(
     model,
     tokenizer,
@@ -76,6 +77,7 @@ def generate2(
 
     return generated_list[0]
 
+
 # setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 clip_model, preprocess = clip.load("ViT-B/32", device=device, jit=False)
@@ -97,9 +99,7 @@ image = io.imread(image)
 pil_image = PIL.Image.fromarray(image)
 image = T(preprocess(pil_image)).unsqueeze(0).to(device)
 with torch.no_grad():
-    prefix = clip_model.encode_image(image).to(
-        device, dtype=torch.float32
-    )
+    prefix = clip_model.encode_image(image).to(device, dtype=torch.float32)
     prefix_embed = model.clip_project(prefix).reshape(1, prefix_length, -1)
 
 x = generate2(model, tokenizer, embed=prefix_embed)

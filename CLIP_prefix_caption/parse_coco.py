@@ -10,11 +10,11 @@ import argparse
 
 
 def main(clip_model_type: str):
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    clip_model_name = clip_model_type.replace('/', '_')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    clip_model_name = clip_model_type.replace("/", "_")
     out_path = f"./data/coco/oscar_split_{clip_model_name}_train.pkl"
     clip_model, preprocess = clip.load(clip_model_type, device=device, jit=False)
-    with open('./data/coco/annotations/train_caption.json', 'r') as f:
+    with open("./data/coco/annotations/train_caption.json", "r") as f:
         data = json.load(f)
     print("%0d captions loaded from json " % len(data))
     all_embeddings = []
@@ -33,19 +33,26 @@ def main(clip_model_type: str):
         all_embeddings.append(prefix)
         all_captions.append(d)
 
-    with open(out_path, 'wb') as f:
-        obj = {"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}
-        print('Saving:', obj)
-        print('clip_embeding_shape:', obj['clip_embedding'].shape)
+    with open(out_path, "wb") as f:
+        obj = {
+            "clip_embedding": torch.cat(all_embeddings, dim=0),
+            "captions": all_captions,
+        }
+        print("Saving:", obj)
+        print("clip_embeding_shape:", obj["clip_embedding"].shape)
         pickle.dump(obj, f)
 
-    print('Done')
+    print("Done")
     print("%0d embeddings saved " % len(all_embeddings))
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--clip_model_type', default="ViT-B/32", choices=('RN50', 'RN101', 'RN50x4', 'ViT-B/32'))
+    parser.add_argument(
+        "--clip_model_type",
+        default="ViT-B/32",
+        choices=("RN50", "RN101", "RN50x4", "ViT-B/32"),
+    )
     args = parser.parse_args()
     exit(main(args.clip_model_type))
