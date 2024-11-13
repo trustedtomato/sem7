@@ -70,7 +70,6 @@ class PTBXLEncodedDataset(Dataset):
             report_tokenized = torch.tensor(
                 self.tokenizer.encode(data["report"]), dtype=torch.int64
             )
-
             self.report_tokens.append(report_tokenized)
 
         self.max_seq_len = max([len(tokens) for tokens in self.report_tokens])
