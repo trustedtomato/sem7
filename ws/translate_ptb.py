@@ -1,8 +1,9 @@
+from time import sleep
+
+import httpx
 import pandas as pd
 from googletrans import Translator
-import httpx
 from tqdm import tqdm
-from time import sleep
 
 # Load ptb-xl database
 path = 'data/ptb-xl/'
