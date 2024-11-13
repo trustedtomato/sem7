@@ -14,6 +14,8 @@ from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
 
+from utils import pkl_load, pkl_save
+
 
 class PTBXLEncodedDataset(Dataset):
     def __len__(self) -> int:
@@ -54,8 +56,7 @@ class PTBXLEncodedDataset(Dataset):
         self.tokenizer = GPT2Tokenizer.from_pretrained(gpt2_type)
         self.prefix_length = prefix_length
         self.normalize_prefix = normalize_prefix
-        with open(data_path, "rb") as f:
-            all_data = pickle.load(f)
+        all_data = pkl_load(data_path)
         print("Data size is %0d" % len(all_data))
         self.encoder_embeddings = []
         self.ecg_ids = []
@@ -389,7 +390,7 @@ def train(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
-    parser.add_argument("--out_dir", default="./checkpoints")
+    parser.add_argument("--out_dir", default="./results/checkpoints")
     parser.add_argument(
         "--prefix", default="coco_prefix", help="prefix for saved filenames"
     )
