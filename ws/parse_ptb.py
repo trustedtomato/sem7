@@ -2,13 +2,13 @@ import os
 import pickle
 
 import numpy as np
+import pandas as pd
 import scipy.signal
 import torch
+import wfdb
 from tqdm import tqdm
 
-import pandas as pd
 from ts2vec import TS2Vec
-import wfdb
 
 
 def apply_highpass_filter(data, lowcut=0.05, sampling_rate=100, axis=-1):
@@ -51,14 +51,16 @@ n_samples = 100
 data_folder = "data/ptb-xl/"
 out_folder = "data/ptb-xl/"
 
-test_fold = 10
-val_fold = 9
-train_fold = 8
+train_fold_size = 8
+val_fold_size = 1
 ptb_df = pd.read_csv(data_folder + "ptbxl_database_translated.csv")
 # strat_fold goes from 1-10 and is used to split the data into train, validation and test sets
-ptb_df_train = ptb_df[ptb_df.strat_fold <= train_fold]
-ptb_df_val = ptb_df[train_fold < ptb_df.strat_fold <= val_fold]
-ptb_df_test = ptb_df[val_fold < ptb_df.strat_fold <= test_fold]
+ptb_df_train = ptb_df[ptb_df.strat_fold <= train_fold_size]
+ptb_df_val = ptb_df[
+    (train_fold_size < ptb_df.strat_fold)
+    & (ptb_df.strat_fold <= train_fold_size + val_fold_size)
+]
+ptb_df_test = ptb_df[train_fold_size + val_fold_size < ptb_df.strat_fold]
 
 # Encodes the data row by row and saves the embeddings and reports in a pickle file
 

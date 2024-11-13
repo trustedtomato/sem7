@@ -16,7 +16,6 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 
 class PTBXLEncodedDataset(Dataset):
-
     def __len__(self) -> int:
         return len(self.report_tokens)
 
@@ -96,7 +95,6 @@ class MlpTransformer(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-
     def __init__(self, dim_self, dim_ref, num_heads, bias=True, dropout=0.0):
         super().__init__()
         self.num_heads = num_heads
@@ -130,7 +128,6 @@ class MultiHeadAttention(nn.Module):
 
 
 class TransformerLayer(nn.Module):
-
     def forward_with_attention(self, x, y=None, mask=None):
         x_, attention = self.attn(self.norm1(x), y, mask)
         x = x + x_
@@ -165,7 +162,6 @@ class TransformerLayer(nn.Module):
 
 
 class Transformer(nn.Module):
-
     def forward_with_attention(self, x, y=None, mask=None):
         attentions = []
         for layer in self.layers:
@@ -238,7 +234,6 @@ class Transformer(nn.Module):
 
 
 class TransformerMapper(nn.Module):
-
     def forward(self, x):
         x = self.linear(x).view(x.shape[0], self.clip_length, -1)
         print("x shape: ", x.shape)
@@ -272,7 +267,6 @@ class TransformerMapper(nn.Module):
 
 
 class ClipCaptionModel(nn.Module):
-
     def get_dummy_token(self, batch_size: int, device: torch.device) -> torch.Tensor:
         return torch.zeros(
             batch_size, self.prefix_length, dtype=torch.int64, device=device
@@ -313,7 +307,6 @@ class ClipCaptionModel(nn.Module):
 
 
 class ClipCaptionPrefix(ClipCaptionModel):
-
     def parameters(self, recurse: bool = True):
         return self.clip_project.parameters()
 
@@ -341,7 +334,6 @@ def train(
     output_dir: str = ".",
     output_prefix: str = "",
 ):
-
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     batch_size = args.bs
     epochs = args.epochs
@@ -360,7 +352,6 @@ def train(
     )
     # save_config(args)
     for epoch in range(epochs):
-
         print(f">>> Training epoch {epoch}")
         progress = tqdm(total=len(train_dataloader), desc=output_prefix)
         for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
