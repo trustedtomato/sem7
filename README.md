@@ -39,8 +39,8 @@ requirements.txt`
 ## Development
 
 - The repository was configured to be used with VSCode
-- Install basedpyright and Ruff VSCode extension for Python linting and import
-  organization, respectively.
+- Install basedpyright VSCode extension for Python linting and import
+  organization, and Black formatter for code formatting
 
 ## Datasets
 
