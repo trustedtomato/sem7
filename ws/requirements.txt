@@ -9,5 +9,5 @@ scipy==1.14.1
 tasks==2.8.0
 torch==2.5.1
 tqdm==4.66.6
-transformers==4.46.0
+transformers==4.46.2
 wfdb==4.1.2
