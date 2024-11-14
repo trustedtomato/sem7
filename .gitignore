@@ -158,7 +158,7 @@ cython_debug/
 # Data files
 ws/data/ptb-xl/*
 ws/data/mimic-iv-ecg/*
-ws/data/*.zip
+ws/data/*.zip*
 !ws/data/ptb-xl/.gitkeep
 
 # PyCharm
