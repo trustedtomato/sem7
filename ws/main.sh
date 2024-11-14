@@ -1,9 +1,19 @@
-#!/bin/bash
+source .venv/bin/activate
 
-set -e
+file=$1
 
-if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+# check if file ends with .py
+if [[ $file != *.py ]]
+then
+  echo "File must be a python file"
+  exit 1
 fi
 
-srun --gres=gpu:1 singularity exec --nv /ceph/container/pytorch/pytorch_24.09.sif bash ./main_run.sh
+if [[ " $* " == *" -n "* ]]
+then
+  echo "Skip install requirements"
+else
+    pip install -r requirements.txt
+fi
+
+python3 $file

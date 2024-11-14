@@ -90,7 +90,7 @@ def main():
     clip_length = 10
     batch_size = 40
 
-    weights_path = "results/checkpoints/"
+    weights_path = "results/coco_prefix-001.pt"
     model = ClipCaptionModel(prefix_length, clip_length)
     model.load_state_dict(torch.load(weights_path, map_location=torch.device("cpu")))
     model = model.eval()
