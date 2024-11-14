@@ -4,7 +4,7 @@ mkl==2025.0.0
 neurokit2==0.2.10
 # We should use the same numpy version as the one used in the AI Lab container we're using
 numpy==1.26.4
-pandas==2.2.3
+pandas==2.2.2
 scikit_learn==1.5.2
 scipy==1.14.1
 tasks==2.8.0
