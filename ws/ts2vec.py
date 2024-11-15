@@ -132,7 +132,7 @@ class TS2Vec:
             if self.after_iter_callback is not None:
                 self.after_iter_callback(self, loss.item())
 
-        return (cum_loss / n_epoch_iters, interrupted)
+        return (cum_loss / n_epoch_iters if n_epoch_iters > 0 else 1000, interrupted)
 
     def fit(self, train_data, val_data, n_epochs=None, n_iters=None, verbose=False):
         """Training the TS2Vec model.

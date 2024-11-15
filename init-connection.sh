@@ -8,4 +8,4 @@ TEMP="$HOME $USER $HOST $PASS"
 
 # Initiate the master connection
 mkdir -p $HOME/.ssh/ctl
-sshpass -p $PASS ssh -nNf -o ControlMaster=yes -o ControlPath="$HOME/.ssh/ctl/%L-%r@%h:%p" -o ControlPersist=5m $USER@$HOST
+sshpass -p $PASS ssh -nNf -o "StrictHostKeyChecking=no" -o ControlMaster=yes -o ControlPath="$HOME/.ssh/ctl/%L-%r@%h:%p" -o ControlPersist=5m $USER@$HOST
