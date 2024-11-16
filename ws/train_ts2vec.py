@@ -11,33 +11,10 @@ import scipy.signal
 import tasks
 import torch
 import wfdb
+from parse_ptb import load_raw_data, preprocess
 from tqdm import tqdm
 from ts2vec import TS2Vec
 from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
-
-
-def apply_highpass_filter(data, lowcut=0.05, sampling_rate=100, axis=-1):
-    b, a = scipy.signal.butter(5, lowcut, btype="highpass", fs=sampling_rate)
-    return scipy.signal.filtfilt(b, a, data, axis=axis)
-
-
-# Data is of shape (n_batch, n_samples, n_channels)
-def preprocess(data, sampling_rate=100):
-    # Filter the data. Commonly done with bandpass filter from 0.05 Hz to 150 Hz, but here we only use highpass filter because of sampling rate
-    data_filtered = apply_highpass_filter(
-        data, lowcut=0.05, sampling_rate=sampling_rate, axis=1
-    )
-    # Normalize the data to have zero mean and unit variance along the time axis
-    # data_normalized = (data_filtered - np.mean(data_filtered, axis=1)) / np.std(data_filtered, axis=1)
-    return data_filtered
-
-
-def load_raw_data(df, sampling_rate, path):
-    data = [
-        wfdb.rdsamp(path + f)
-        for f in tqdm((df.filename_lr if sampling_rate == 100 else df.filename_hr))
-    ]
-    return np.array([signal for signal, meta in data])
 
 
 def load_ptb_data(data_path="data/ptb-xl/"):

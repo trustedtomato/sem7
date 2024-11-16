@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import pickle
+from math import isnan
 from typing import Optional, Tuple
 
 import torch
@@ -13,7 +14,7 @@ from tqdm import tqdm
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
-from utils import pkl_load, pkl_save
+from utils import Logger, pkl_load, pkl_save
 
 
 class PTBXLEncodedDataset(Dataset):
@@ -62,6 +63,9 @@ class PTBXLEncodedDataset(Dataset):
         self.report_tokens = []
 
         for data in tqdm(all_data):
+            if type(data["report"]) == float:
+                continue
+
             self.encoder_embeddings.append(
                 torch.tensor(data["embedding"], dtype=torch.float32)
             )
@@ -236,17 +240,17 @@ class Transformer(nn.Module):
 class TransformerMapper(nn.Module):
     def forward(self, x):
         x = self.linear(x).view(x.shape[0], self.clip_length, -1)
-        #print("x shape: ", x.shape)
+        # print("x shape: ", x.shape)
         prefix = self.prefix_const.unsqueeze(0)
-        #print("prefix shape: ", prefix.shape)
+        # print("prefix shape: ", prefix.shape)
         prefix = prefix.expand(x.shape[0], *self.prefix_const.shape)
-        #print("prefix shape after expand: ", prefix.shape)
+        # print("prefix shape after expand: ", prefix.shape)
         prefix = torch.cat((x, prefix), dim=1)
-        #print("prefix shape after cat: ", prefix.shape)
+        # print("prefix shape after cat: ", prefix.shape)
         out = self.transformer(prefix)
-        #print("out shape: ", out.shape)
+        # print("out shape: ", out.shape)
         out = out[:, self.clip_length :]
-        #print("out shape after slicing: ", out.shape)
+        # print("out shape after slicing: ", out.shape)
         return out
 
     def __init__(
@@ -294,7 +298,7 @@ class ClipCaptionModel(nn.Module):
         self,
         prefix_length: int,
         clip_length: int,
-        prefix_size: int = 512,
+        prefix_size: int = 320,
         num_layers: int = 8,
     ):
         super(ClipCaptionModel, self).__init__()
@@ -316,83 +320,69 @@ class ClipCaptionPrefix(ClipCaptionModel):
         return self
 
 
-def save_config(args: argparse.Namespace):
-    config = {}
-    for key, item in args._get_kwargs():
-        config[key] = item
-    out_path = os.path.join(args.out_dir, f"{args.prefix}.json")
-    with open(out_path, "w") as outfile:
-        json.dump(config, outfile)
-
-
 def train(
     dataset: PTBXLEncodedDataset,
     model: ClipCaptionModel,
     args,
     lr: float = 2e-5,
     warmup_steps: int = 5000,
-    output_dir: str = ".",
-    output_prefix: str = "",
 ):
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    batch_size = args.bs
-    epochs = args.epochs
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    print(f"Using device {device}")
     model = model.to(device)
     model.train()
     optimizer = AdamW(model.parameters(), lr=lr)
+
     train_dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, drop_last=False
+        dataset, batch_size=args.bs, shuffle=True, drop_last=False
     )
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
         num_warmup_steps=warmup_steps,
-        num_training_steps=epochs * len(train_dataloader),
+        num_training_steps=args.epochs * len(train_dataloader),
     )
-    # save_config(args)
-    for epoch in range(epochs):
-        print(f">>> Training epoch {epoch}")
-        progress = tqdm(total=len(train_dataloader), desc=output_prefix)
-        for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
-            model.zero_grad()
-            tokens, mask, prefix = (
-                tokens.to(device),
-                mask.to(device),
-                prefix.to(device, dtype=torch.float32),
-            )
-            outputs = model(tokens, prefix, mask)
-            logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
-            loss = nnf.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]), tokens.flatten(), ignore_index=0
-            )
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
-            progress.set_postfix({"loss": loss.item()})
-            progress.update()
-            if (idx + 1) % 10000 == 0:
+    with Logger(os.path.join(args.out_dir, f"{args.prefix}_losses.txt")) as logger:
+        for epoch in range(args.epochs):
+            print(f">>> Training epoch {epoch}")
+            progress = tqdm(total=len(train_dataloader), desc=args.prefix)
+            for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
+                model.zero_grad()
+                tokens, mask, prefix = (
+                    tokens.to(device),
+                    mask.to(device),
+                    prefix.to(device, dtype=torch.float32),
+                )
+                outputs = model(tokens, prefix, mask)
+                logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
+                loss = nnf.cross_entropy(
+                    logits.reshape(-1, logits.shape[-1]),
+                    tokens.flatten(),
+                    ignore_index=0,
+                )
+                loss.backward()
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                progress.set_postfix({"loss": loss.item()})
+                progress.update()
+                logger.log(loss.item())
+            progress.close()
+            if epoch % args.save_every == 0 or epoch == args.epochs - 1:
                 torch.save(
                     model.state_dict(),
-                    os.path.join(output_dir, f"{output_prefix}_latest.pt"),
+                    os.path.join(args.out_dir, f"{args.prefix}_model.pt"),
                 )
-        progress.close()
-        if epoch % args.save_every == 0 or epoch == epochs - 1:
-            torch.save(
-                model.state_dict(),
-                os.path.join(output_dir, f"{output_prefix}-{epoch:03d}.pt"),
-            )
     return model
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
-    parser.add_argument("--out_dir", default="./results/checkpoints")
-    parser.add_argument(
-        "--prefix", default="coco_prefix", help="prefix for saved filenames"
-    )
+    parser.add_argument("--out_dir", default="./data/tscap")
+    parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--save_every", type=int, default=10)
     parser.add_argument("--prefix_length", type=int, default=10)
@@ -400,16 +390,14 @@ def main():
     parser.add_argument("--bs", type=int, default=40)
     parser.add_argument("--only_prefix", dest="only_prefix", action="store_true")
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--is_rn", dest="is_rn", action="store_true")
     parser.add_argument(
         "--normalize_prefix", dest="normalize_prefix", action="store_true"
     )
 
     args = parser.parse_args()
-    prefix_length = args.prefix_length
     dataset = PTBXLEncodedDataset(
         data_path=args.data,
-        prefix_length=prefix_length,
+        prefix_length=args.prefix_length,
         gpt2_type="gpt2",
         normalize_prefix=args.normalize_prefix,
     )
@@ -417,7 +405,7 @@ def main():
     prefix_dim = 320
     if args.only_prefix:
         model = ClipCaptionPrefix(
-            prefix_length,
+            args.prefix_length,
             clip_length=args.prefix_length_clip,
             prefix_size=prefix_dim,
             num_layers=args.num_layers,
@@ -425,13 +413,13 @@ def main():
         print("Train only prefix")
     else:
         model = ClipCaptionModel(
-            prefix_length,
+            args.prefix_length,
             clip_length=args.prefix_length_clip,
             prefix_size=prefix_dim,
             num_layers=args.num_layers,
         )
         print("Train both prefix and GPT")
-    train(dataset, model, args, output_dir=args.out_dir, output_prefix=args.prefix)
+    train(dataset, model, args)
 
 
 if __name__ == "__main__":

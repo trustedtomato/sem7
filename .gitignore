@@ -161,6 +161,8 @@ cython_debug/
 /ws/data/ptb-xl/*
 !/ws/data/ptb-xl/.gitkeep
 
+.rsyncignore_local
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
