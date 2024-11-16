@@ -13,7 +13,6 @@ from tqdm import tqdm
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
-
 from utils import pkl_load, pkl_save
 
 
@@ -237,17 +236,17 @@ class Transformer(nn.Module):
 class TransformerMapper(nn.Module):
     def forward(self, x):
         x = self.linear(x).view(x.shape[0], self.clip_length, -1)
-        print("x shape: ", x.shape)
+        #print("x shape: ", x.shape)
         prefix = self.prefix_const.unsqueeze(0)
-        print("prefix shape: ", prefix.shape)
+        #print("prefix shape: ", prefix.shape)
         prefix = prefix.expand(x.shape[0], *self.prefix_const.shape)
-        print("prefix shape after expand: ", prefix.shape)
+        #print("prefix shape after expand: ", prefix.shape)
         prefix = torch.cat((x, prefix), dim=1)
-        print("prefix shape after cat: ", prefix.shape)
+        #print("prefix shape after cat: ", prefix.shape)
         out = self.transformer(prefix)
-        print("out shape: ", out.shape)
+        #print("out shape: ", out.shape)
         out = out[:, self.clip_length :]
-        print("out shape after slicing: ", out.shape)
+        #print("out shape after slicing: ", out.shape)
         return out
 
     def __init__(
