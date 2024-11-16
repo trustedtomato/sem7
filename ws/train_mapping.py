@@ -1,8 +1,8 @@
 import argparse
 import json
-from math import isnan
 import os
 import pickle
+from math import isnan
 from typing import Optional, Tuple
 
 import torch

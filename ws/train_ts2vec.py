@@ -4,16 +4,15 @@ import os
 import sys
 import time
 
+import datautils
 import numpy as np
 import pandas as pd
 import scipy.signal
 import tasks
 import torch
-from tqdm import tqdm
 import wfdb
-
-import datautils
 from parse_ptb import load_raw_data, preprocess
+from tqdm import tqdm
 from ts2vec import TS2Vec
 from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
 from ws import config
@@ -24,6 +23,7 @@ def load_ptb_data(data_path="data/ptb-xl/"):
     train_fold_size = 8
     val_fold_size = 1
     ptb_df = pd.read_csv(data_path + "ptbxl_database_translated.csv")
+    # For testing purposes uncomment the line below
     # ptb_df = ptb_df[0:100]
     # strat_fold goes from 1-10 and is used to split the data into train, validation and test sets
     ptb_df_train = ptb_df[ptb_df.strat_fold <= train_fold_size]
