@@ -385,5 +385,5 @@ class TS2Vec:
         Args:
             fn (str): filename.
         """
-        state_dict = torch.load(fn, map_location=self.device)
+        state_dict = torch.load(fn, map_location=self.device, weights_only=True)
         self.net.load_state_dict(state_dict)
