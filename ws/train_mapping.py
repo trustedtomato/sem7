@@ -15,6 +15,7 @@ from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
 
+import config
 from utils import Logger, pkl_load, pkl_save
 
 
@@ -323,7 +324,7 @@ class ClipCaptionPrefix(ClipCaptionModel):
 
 def train(
     dataset: PTBXLEncodedDataset,
-    model: ClipCaptionModel,
+    model: nn.Module,
     args,
     lr: float = 2e-5,
     warmup_steps: int = 5000,
@@ -386,11 +387,13 @@ def main():
     parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--save_every", type=int, default=10)
-    parser.add_argument("--prefix_length", type=int, default=10)
-    parser.add_argument("--prefix_length_clip", type=int, default=8)
-    parser.add_argument("--bs", type=int, default=40)
+    parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
+    parser.add_argument(
+        "--prefix_length_clip", type=int, default=config.ts_embedding_length
+    )
+    parser.add_argument("--bs", type=int, default=200)
     parser.add_argument("--only_prefix", dest="only_prefix", action="store_true")
-    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--num_layers", type=int, default=config.num_layers)
     parser.add_argument(
         "--normalize_prefix", dest="normalize_prefix", action="store_true"
     )
@@ -420,6 +423,9 @@ def main():
             num_layers=args.num_layers,
         )
         print("Train both prefix and GPT")
+    if torch.cuda.device_count() > 1:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        model = nn.DataParallel(model)
     train(dataset, model, args)
 
 

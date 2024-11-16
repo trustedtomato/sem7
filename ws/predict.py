@@ -5,13 +5,14 @@ import PIL.Image
 from torch import nn
 import torch
 import torch.nn.functional as nnf
+from torch.utils.data import DataLoader, Dataset
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from typing_extensions import override
 
+import config
 from parse_ptb import load_encoder, preprocess
 from train_mapping import ClipCaptionModel, ClipCaptionPrefix, PTBXLEncodedDataset
-from torch.utils.data import DataLoader, Dataset
 from utils import pkl_load
 
 T = torch.Tensor
@@ -87,12 +88,10 @@ def main():
     # setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    prefix_length = 10
-    clip_length = 8
-    batch_size = 40
-
-    weights_path = "data/tscap/tscap-001.pt"
-    model = ClipCaptionModel(prefix_length, clip_length, num_layers=2)
+    weights_path = "data/tscap/tscap_model.pt"
+    model = ClipCaptionModel(
+        config.prefix_length, config.ts_embedding_length, num_layers=config.num_layers
+    )
     state = torch.load(
         weights_path, map_location=torch.device("cpu"), weights_only=True
     )
@@ -101,18 +100,19 @@ def main():
     model = model.to(device)
 
     data_path = "data/ptb-xl/parsed_ptb_test.pkl"
-    dataset = PTBXLEncodedDataset(data_path, prefix_length)
-    train_dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, drop_last=False
-    )
+    dataset = PTBXLEncodedDataset(data_path, config.prefix_length)
+    train_dataloader = DataLoader(dataset, batch_size=1, shuffle=True, drop_last=False)
     for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
         tokens = tokens.to(device)
         mask = mask.to(device)
         prefix = prefix.to(device)
         with torch.no_grad():
-            prefix_embed = model.clip_project(prefix).reshape(1, prefix_length, -1)
+            prefix_embed = model.clip_project(prefix).reshape(
+                1, config.prefix_length, -1
+            )
         x = generate2(model, tokenizer, embed=prefix_embed)
         print(x)
+        print(tokenizer.decode(tokens.squeeze().cpu().numpy()))
 
 
 if __name__ == "__main__":
