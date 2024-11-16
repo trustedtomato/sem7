@@ -4,28 +4,17 @@ import os
 import sys
 import time
 
-import datautils
 import numpy as np
 import pandas as pd
 import scipy.signal
 import tasks
 import torch
-import wfdb
 from tqdm import tqdm
-from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
+import wfdb
 
+import datautils
 from ts2vec import TS2Vec
-
-
-def save_checkpoint_callback(save_every=1, unit="epoch"):
-    assert unit in ("epoch", "iter")
-
-    def callback(model, loss):
-        n = model.n_epochs if unit == "epoch" else model.n_iters
-        if n % save_every == 0:
-            model.save(f"{run_dir}/model_{n}.pkl")
-
-    return callback
+from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
 
 
 def apply_highpass_filter(data, lowcut=0.05, sampling_rate=100, axis=-1):
@@ -74,17 +63,6 @@ def load_ptb_data(data_path="data/ptb-xl/"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("dataset", help="The dataset name")
-    parser.add_argument(
-        "run_name",
-        help="The folder name used to save model, output and evaluation metrics. This can be set to any word",
-    )
-    parser.add_argument(
-        "--gpu",
-        type=int,
-        default=0,
-        help="The gpu no. used for training and inference (defaults to 0)",
-    )
     parser.add_argument(
         "--batch-size", type=int, default=8, help="The batch size (defaults to 8)"
     )
@@ -113,55 +91,34 @@ if __name__ == "__main__":
         default=None,
         help="Save the checkpoint every <save_every> iterations/epochs",
     )
-    parser.add_argument("--seed", type=int, default=None, help="The random seed")
-    parser.add_argument(
-        "--max-threads",
-        type=int,
-        default=None,
-        help="The maximum allowed number of threads used by this process",
-    )
-    parser.add_argument(
-        "--eval",
-        action="store_true",
-        help="Whether to perform evaluation after training",
-    )
     args = parser.parse_args()
 
-    print("Dataset:", args.dataset)
     print("Arguments:", str(args))
-
-    # device = init_dl_program(args.gpu, seed=args.seed, max_threads=args.max_threads)
-
     print("Loading data... ", end="")
 
     ptb_path = "data/ptb-xl/"
     train_data, val_data = load_ptb_data(data_path=ptb_path)
 
-    print("done")
+    print("Done")
 
-    config = dict(
+    output_dir = "data/ts2vec"
+    os.makedirs(output_dir, exist_ok=True)
+
+    t = time.time()
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = TS2Vec(
+        input_dims=train_data.shape[-1],
+        device=device,
         batch_size=args.batch_size,
         lr=args.lr,
         output_dims=args.repr_dims,
         max_train_length=args.max_train_length,
     )
-
-    if args.save_every is not None:
-        unit = "epoch" if args.epochs is not None else "iter"
-        config[f"after_{unit}_callback"] = save_checkpoint_callback(
-            args.save_every, unit
-        )
-
-    run_dir = "training/" + args.dataset + "__" + name_with_datetime(args.run_name)
-    os.makedirs(run_dir, exist_ok=True)
-
-    t = time.time()
-
-    model = TS2Vec(input_dims=train_data.shape[-1], device="cpu", **config)
     loss_log = model.fit(
         train_data, val_data, n_epochs=args.epochs, n_iters=args.iters, verbose=True
     )
-    model.save(f"{run_dir}/model.pkl")
+    model.save(f"{output_dir}/model.pkl")
 
     t = time.time() - t
     print(f"\nTraining time: {datetime.timedelta(seconds=t)}\n")
