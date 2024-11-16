@@ -11,8 +11,6 @@ if not ".py" in script:
     exit(1)
 
 if not no_install:
-    subprocess.call(
-        [sys.executable, "-m", "pip", "install", "-r", "requirements_no_torch.txt"]
-    )
+    subprocess.call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
 subprocess.call([sys.executable, "-u", *args])
