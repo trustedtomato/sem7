@@ -31,10 +31,10 @@ requirements.txt`
 14. Run `./run.sh` to run [ws/main.py](ws/main.py) which is the main file for the
     project
     1. `run.sh` will sync the [ws](ws) folder to the AAU AI Lab frontend
-    2. `run.sh` will SSH into the frontend and run `main.sh`
-    3. `main.sh` will run the [ws/main.py](ws/main.py) file inside a pytorch
+    2. `run.sh` will SSH into the frontend and run `main_run.sh`
+    3. `main_run.sh` will run the [ws/main.py](ws/main.py) file inside a pytorch
        container
-    4. [ws/results](ws/results) will be synced back to the local machine
+    4. [ws](ws) will be synced back to the local machine
 
 ## Development
 
@@ -42,8 +42,10 @@ requirements.txt`
 - Install basedpyright VSCode extension for Python linting and import
   organization, and Black formatter for code formatting
 
-## Datasets
+### Tips
 
-1. https://data.mendeley.com/datasets/xmbxhscgpr/3
-2. https://physionet.org/content/ptb-xl/1.0.3/
-3. https://data.mendeley.com/datasets/34rpmsxc4z/2
+- When running ./rush.sh you can use the -n flag to skip installing dependencies
+  (useful after the first run to save time)
+- Use .rsyncignore_local to add files/directories which were already synced and
+  do not need to be synced again so that we save time (use this to avoid syncing
+  the PTB-XL dataset on each run.sh call, for example)
