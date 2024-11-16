@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
@@ -5,6 +6,7 @@ import numpy as np
 from models import TSEncoder
 from models.losses import hierarchical_contrastive_loss
 from utils import (
+    Logger,
     take_per_row,
     split_with_nan,
     centerize_vary_length_series,
@@ -134,7 +136,15 @@ class TS2Vec:
 
         return (cum_loss / n_epoch_iters if n_epoch_iters > 0 else 1000, interrupted)
 
-    def fit(self, train_data, val_data, n_epochs=None, n_iters=None, verbose=False):
+    def fit(
+        self,
+        train_data,
+        val_data,
+        n_epochs=None,
+        n_iters=None,
+        verbose=False,
+        logger: Logger | None = None,
+    ):
         """Training the TS2Vec model.
 
         Args:
@@ -183,8 +193,6 @@ class TS2Vec:
 
         optimizer = torch.optim.AdamW(self._net.parameters(), lr=self.lr)
 
-        loss_log = {"train_loss": [], "val_loss": []}
-
         while True:
             if n_epochs is not None and self.n_epochs >= n_epochs:
                 break
@@ -199,8 +207,9 @@ class TS2Vec:
             if interrupted:
                 break
 
-            loss_log["train_loss"].append(train_average_loss)
-            loss_log["val_loss"].append(val_average_loss)
+            if logger is not None:
+                logger.log(f"{train_average_loss} {val_average_loss}")
+
             if verbose:
                 print(
                     f"Epoch #{self.n_epochs}: train_loss={train_average_loss}, val_loss={val_average_loss}"
@@ -209,8 +218,6 @@ class TS2Vec:
 
             if self.after_epoch_callback is not None:
                 self.after_epoch_callback(self, train_average_loss)
-
-        return loss_log
 
     def _eval_with_pooling(self, x, mask=None, slicing=None, encoding_window=None):
         out = self.net(x.to(self.device, non_blocking=True), mask)

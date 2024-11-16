@@ -75,9 +75,10 @@ def generate2(
                 if stop_token_index == next_token.item():
                     break
 
-            output_list = list(tokens.squeeze().view(-1).cpu().numpy())
-            output_text = tokenizer.decode(output_list)
-            generated_list.append(output_text)
+            if tokens is not None:
+                output_list = list(tokens.squeeze().view(-1).cpu().numpy())
+                output_text = tokenizer.decode(output_list)
+                generated_list.append(output_text)
 
     return generated_list[0]
 
@@ -87,12 +88,15 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
     prefix_length = 10
-    clip_length = 10
+    clip_length = 8
     batch_size = 40
 
-    weights_path = "results/coco_prefix-001.pt"
-    model = ClipCaptionModel(prefix_length, clip_length)
-    model.load_state_dict(torch.load(weights_path, map_location=torch.device("cpu")))
+    weights_path = "data/tscap/tscap-001.pt"
+    model = ClipCaptionModel(prefix_length, clip_length, num_layers=2)
+    state = torch.load(
+        weights_path, map_location=torch.device("cpu"), weights_only=True
+    )
+    model.load_state_dict(state)
     model = model.eval()
     model = model.to(device)
 
@@ -107,7 +111,6 @@ def main():
         prefix = prefix.to(device)
         with torch.no_grad():
             prefix_embed = model.clip_project(prefix).reshape(1, prefix_length, -1)
-        # do we actually need this generate2 function?
         x = generate2(model, tokenizer, embed=prefix_embed)
         print(x)
 
