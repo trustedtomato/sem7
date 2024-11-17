@@ -135,10 +135,12 @@ def init_dl_program(
 
 
 class Logger:
-    def __init__(self, log_path, print_to_stdout=False):
+    def __init__(self, log_path, print_to_stdout=False, append=False):
         self.log_path = log_path
-        self.log_file = open(log_path, "w")
+        self.log_file = open(log_path, "a" if append else "w")
         self.print_to_stdout = print_to_stdout
+        if append:
+            print("", file=self.log_file)
 
     def log(self, *args, **kwargs):
         if self.print_to_stdout:
