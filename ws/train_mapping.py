@@ -1,15 +1,16 @@
 import argparse
-import json
-import os
-import pickle
 from math import isnan
+import os
 from typing import Optional, Tuple
 
 import torch
+from torch.distributed import destroy_process_group, init_process_group
 import torch.nn as nn
 from torch.nn import functional as nnf
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.adamw import AdamW
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
@@ -17,6 +18,13 @@ from transformers.optimization import get_linear_schedule_with_warmup
 
 import config
 from utils import Logger, pkl_load, pkl_save
+
+
+def ddp_setup() -> int:
+    init_process_group(backend="nccl")
+    device = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(device)
+    return device
 
 
 class PTBXLEncodedDataset(Dataset):
@@ -65,6 +73,7 @@ class PTBXLEncodedDataset(Dataset):
         self.report_tokens = []
 
         for data in tqdm(all_data):
+            # filter out nan reports
             if type(data["report"]) == float:
                 continue
 
@@ -303,7 +312,7 @@ class ClipCaptionModel(nn.Module):
         prefix_size: int = 320,
         num_layers: int = 8,
     ):
-        super(ClipCaptionModel, self).__init__()
+        super().__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained("gpt2")
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
@@ -317,7 +326,7 @@ class ClipCaptionPrefix(ClipCaptionModel):
         return self.clip_project.parameters()
 
     def train(self, mode: bool = True):
-        super(ClipCaptionPrefix, self).train(mode)
+        super().train(mode)
         self.gpt.eval()
         return self
 
@@ -325,6 +334,7 @@ class ClipCaptionPrefix(ClipCaptionModel):
 def train(
     dataset: PTBXLEncodedDataset,
     model: nn.Module,
+    device: int,
     args,
     lr: float = 2e-5,
     warmup_steps: int = 5000,
@@ -332,73 +342,77 @@ def train(
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    snapshot_path = os.path.join(args.out_dir, f"{args.prefix}_snapshot.pt")
+
     print(f"Using device {device}")
     model = model.to(device)
+    model = DDP(model, device_ids=[device])
     model.train()
     optimizer = AdamW(model.parameters(), lr=lr)
-
+    sampler = DistributedSampler(dataset)
     train_dataloader = DataLoader(
-        dataset, batch_size=args.bs, shuffle=True, drop_last=False
+        dataset, batch_size=args.bs, shuffle=False, drop_last=True, sampler=sampler
     )
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
         num_warmup_steps=warmup_steps,
         num_training_steps=args.epochs * len(train_dataloader),
     )
-    with Logger(os.path.join(args.out_dir, f"{args.prefix}_losses.txt")) as logger:
-        for epoch in range(args.epochs):
-            print(f">>> Training epoch {epoch}")
-            progress = tqdm(total=len(train_dataloader), desc=args.prefix)
-            for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
-                model.zero_grad()
-                tokens, mask, prefix = (
-                    tokens.to(device),
-                    mask.to(device),
-                    prefix.to(device, dtype=torch.float32),
-                )
-                outputs = model(tokens, prefix, mask)
-                logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
-                loss = nnf.cross_entropy(
-                    logits.reshape(-1, logits.shape[-1]),
-                    tokens.flatten(),
-                    ignore_index=0,
-                )
-                loss.backward()
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-                progress.set_postfix({"loss": loss.item()})
-                progress.update()
-                logger.log(loss.item())
-            progress.close()
-            if epoch % args.save_every == 0 or epoch == args.epochs - 1:
-                torch.save(
-                    model.state_dict(),
-                    os.path.join(args.out_dir, f"{args.prefix}_model.pt"),
-                )
+
+    # define losses type
+    def save_snapshot(epoch: int, losses: list[float] = []):
+        snapshot = {
+            "state": model.state_dict(),
+            "current_epoch": epoch,
+            "losses": losses,
+        }
+        torch.save(snapshot, snapshot_path)
+
+    # Load snapshot if exists
+    start_epoch = 0
+    losses: list[float] = []
+    if os.path.exists(snapshot_path):
+        snapshot = torch.load(snapshot_path, weights_only=True)
+        model.load_state_dict(snapshot["state"])
+        start_epoch = snapshot["current_epoch"] + 1
+        losses = snapshot["losses"]
+
+    is_master = device == 0
+
+    for epoch in range(start_epoch, args.epochs):
+        print(f">>> Training epoch {epoch} on device {device}")
+        for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
+            model.zero_grad()
+            tokens, mask, prefix = (
+                tokens.to(device),
+                mask.to(device),
+                prefix.to(device, dtype=torch.float32),
+            )
+            outputs = model(tokens, prefix, mask)
+            logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
+            loss = nnf.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]),
+                tokens.flatten(),
+                ignore_index=0,
+            )
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+            if is_master:
+                progress = f"{str(idx).rjust(len(str(len(train_dataloader))))}/{len(train_dataloader)}"
+                print(f"Epoch {epoch}, {progress}, loss: {loss.item()}")
+                losses.append(loss.item())
+        if is_master:
+            print("Saving snapshot")
+            save_snapshot(epoch)
+
     return model
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
-    parser.add_argument("--out_dir", default="./data/tscap")
-    parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
-    parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--save_every", type=int, default=10)
-    parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
-    parser.add_argument(
-        "--prefix_length_clip", type=int, default=config.ts_embedding_length
-    )
-    parser.add_argument("--bs", type=int, default=200)
-    parser.add_argument("--only_prefix", dest="only_prefix", action="store_true")
-    parser.add_argument("--num_layers", type=int, default=config.num_layers)
-    parser.add_argument(
-        "--normalize_prefix", dest="normalize_prefix", action="store_true"
-    )
+def main(args):
+    device = ddp_setup()
 
-    args = parser.parse_args()
     dataset = PTBXLEncodedDataset(
         data_path=args.data,
         prefix_length=args.prefix_length,
@@ -423,11 +437,25 @@ def main():
             num_layers=args.num_layers,
         )
         print("Train both prefix and GPT")
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        model = nn.DataParallel(model)
-    train(dataset, model, args)
+
+    train(dataset, model, device, args)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
+    parser.add_argument("--out_dir", default="./data/tscap")
+    parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
+    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
+    parser.add_argument(
+        "--prefix_length_clip", type=int, default=config.ts_embedding_length
+    )
+    parser.add_argument("--bs", type=int, default=40)
+    parser.add_argument("--only_prefix", dest="only_prefix", action="store_true")
+    parser.add_argument("--num_layers", type=int, default=config.num_layers)
+    parser.add_argument(
+        "--normalize_prefix", dest="normalize_prefix", action="store_true"
+    )
+    args = parser.parse_args()
+    main(args)

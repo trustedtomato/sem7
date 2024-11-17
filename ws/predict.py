@@ -1,17 +1,10 @@
-from json import encoder
-from typing import Optional
-
-import PIL.Image
-from torch import nn
 import torch
 import torch.nn.functional as nnf
-from torch.utils.data import DataLoader, Dataset
-from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
+from torch.utils.data import DataLoader
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from typing_extensions import override
 
 import config
-from parse_ptb import load_encoder, preprocess
 from train_mapping import ClipCaptionModel, ClipCaptionPrefix, PTBXLEncodedDataset
 from utils import pkl_load
 
@@ -88,13 +81,15 @@ def main():
     # setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    weights_path = "data/tscap/tscap_model.pt"
+    snapshot_path = "data/tscap/tscap_snapshot.pt"
     model = ClipCaptionModel(
         config.prefix_length, config.ts_embedding_length, num_layers=config.num_layers
     )
     state = torch.load(
-        weights_path, map_location=torch.device("cpu"), weights_only=True
-    )
+        snapshot_path, map_location=torch.device("cpu"), weights_only=True
+    )["state"]
+    # remove module. prefix
+    state = {k[7:]: v for k, v in state.items()}
     model.load_state_dict(state)
     model = model.eval()
     model = model.to(device)
