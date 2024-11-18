@@ -106,8 +106,9 @@ def main():
                 1, config.prefix_length, -1
             )
         x = generate2(model, tokenizer, embed=prefix_embed)
-        print(x)
-        print(tokenizer.decode(tokens.squeeze().cpu().numpy()))
+        print("gener", x)
+        print("truth", tokenizer.decode(tokens.squeeze().cpu().numpy()))
+        print()
 
 
 if __name__ == "__main__":
