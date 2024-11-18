@@ -19,4 +19,4 @@ tqdm==4.66.6
 transformers==4.46.2
 typing_extensions==4.12.2
 wfdb==4.1.2
-ws==0.1
+
