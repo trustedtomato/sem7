@@ -1,11 +1,12 @@
 import argparse
-from math import isnan
 import os
+from math import isnan
 from typing import Optional, Tuple
 
+import config
 import torch
-from torch.distributed import destroy_process_group, init_process_group
 import torch.nn as nn
+from torch.distributed import destroy_process_group, init_process_group
 from torch.nn import functional as nnf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.adamw import AdamW
@@ -15,8 +16,6 @@ from tqdm import tqdm
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
-
-import config
 from utils import Logger, pkl_load, pkl_save
 
 
@@ -60,7 +59,7 @@ class PTBXLEncodedDataset(Dataset):
         self,
         data_path: str,
         prefix_length: int,
-        gpt2_type: str = "gpt2",
+        gpt2_type: str = "gpt2-medium",
         normalize_prefix=False,
     ):
         self.tokenizer = GPT2Tokenizer.from_pretrained(gpt2_type)
@@ -311,10 +310,11 @@ class ClipCaptionModel(nn.Module):
         clip_length: int,
         prefix_size: int = 320,
         num_layers: int = 8,
+        gpt2_type: str = "gpt2-medium"
     ):
         super().__init__()
         self.prefix_length = prefix_length
-        self.gpt = GPT2LMHeadModel.from_pretrained("gpt2")
+        self.gpt = GPT2LMHeadModel.from_pretrained(gpt2_type)
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
         self.clip_project = TransformerMapper(
             prefix_size, self.gpt_embedding_size, prefix_length, clip_length, num_layers
@@ -416,7 +416,7 @@ def main(args):
     dataset = PTBXLEncodedDataset(
         data_path=args.data,
         prefix_length=args.prefix_length,
-        gpt2_type="gpt2",
+        gpt2_type="openai-community/gpt2-medium",
         normalize_prefix=args.normalize_prefix,
     )
 
@@ -427,6 +427,7 @@ def main(args):
             clip_length=args.prefix_length_clip,
             prefix_size=prefix_dim,
             num_layers=args.num_layers,
+            gpt2_type="openai-community/gpt2-medium",
         )
         print("Train only prefix")
     else:
@@ -435,6 +436,7 @@ def main(args):
             clip_length=args.prefix_length_clip,
             prefix_size=prefix_dim,
             num_layers=args.num_layers,
+            gpt2_type="openai-community/gpt2-medium",
         )
         print("Train both prefix and GPT")
 
@@ -451,7 +453,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prefix_length_clip", type=int, default=config.ts_embedding_length
     )
-    parser.add_argument("--bs", type=int, default=40)
+    parser.add_argument("--bs", type=int, default=16)
     parser.add_argument("--only_prefix", dest="only_prefix", action="store_true")
     parser.add_argument("--num_layers", type=int, default=config.num_layers)
     parser.add_argument(
