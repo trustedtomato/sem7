@@ -18,9 +18,11 @@ class TSCapMetrics:
         # This tokenizer is default for sacrebleu, which is a common bleu scorer so we will use it for meteor too (mteval-v13a)
         self.tokenizer = Tokenizer13a()
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        print("Loading deberta for BERT score")
         self.bert_scorer = BERTScorer(
             model_type="microsoft/deberta-xlarge-mnli", device=device
         )
+        print("Finished loading deberta")
         # We use the default tokenizer for ROUGE
         self.rouge_scorer = rouge_scorer.RougeScorer(
             ["rouge1", "rouge2", "rougeL"], use_stemmer=False
@@ -156,4 +158,4 @@ if __name__ == "__main__":
     # Initialize the TSCapMetrics class
     ts_cap_metrics = TSCapMetrics()
 
-    print(ts_cap_metrics.calculate_metrics(references, predictions, java_path="/usr/lib/jvm/java-11-openjdk-amd64/bin/java"))
+    print(ts_cap_metrics.calculate_metrics(references, predictions, java_path="~/jdk-11.0.2/bin/java"))
