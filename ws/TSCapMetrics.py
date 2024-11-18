@@ -10,6 +10,7 @@ from nltk.translate.bleu_score import corpus_bleu
 from nltk.translate.meteor_score import single_meteor_score
 from rouge_score import rouge_scorer
 from sacrebleu.tokenizers.tokenizer_13a import Tokenizer13a
+from tqdm import tqdm
 
 
 class TSCapMetrics:
@@ -108,27 +109,28 @@ class TSCapMetrics:
 
     def _calculate_spice_scores(self, ref_sentences, hyp_sentences, java_path=None):
         ref_sentences_as_singletons = [[sentence] for sentence in ref_sentences]
-        spice_score = spice(hyp_sentences, ref_sentences_as_singletons, java_path=java_path)
-        print(spice_score)
+        spice_score = spice(hyp_sentences, ref_sentences_as_singletons, java_path=java_path, return_all_scores=False)
         if "spice" not in self._metrics:
             self._metrics["spice"] = []
-        self._metrics["spice"].append(spice_score)
+        self._metrics["spice"].append(spice_score.item())
 
     def calculate_metrics(
-        self, ref_sentences: list[str], hyp_sentences: list[list[str]]
+        self, ref_sentences: list[str], hyp_sentences: list[list[str]], java_path=None
     ):
         # hyp_sentences should be a list of list of strings where the dimensions are [n_samples, n_sentences]
         # So you would run predict n_samples amount of times and store the result of predict in a list of size n_sentences
+        # ref_sentences should be a list of strings where the dimensions are [n_sentences] and contains the ground truth sentences
         # See the example in main
         metrics_with_conf_int = {}
-        for i in range(len(hyp_sentences)):
+        for i in tqdm(range(len(hyp_sentences))):
             self._calculate_bleu_scores(ref_sentences, hyp_sentences[i], max_n=4)
             self._calculate_meteor_scores(ref_sentences, hyp_sentences[i])
             self._calculate_rouge_scores(ref_sentences, hyp_sentences[i])
             self._calculate_bert_scores(ref_sentences, hyp_sentences[i])
             self._calculate_ciderd_scores(ref_sentences, hyp_sentences[i])
-            # We can't do this without the correct java version
-            #self._calculate_spice_scores(ref_sentences[i], hyp_sentences[i], java_path="/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java")
+            #We can't do this without the correct java version
+            if java_path:
+                self._calculate_spice_scores(ref_sentences, hyp_sentences[i], java_path=java_path)
 
         for key, value in self._metrics.items():
             conf_int = st.t.interval(
@@ -154,4 +156,4 @@ if __name__ == "__main__":
     # Initialize the TSCapMetrics class
     ts_cap_metrics = TSCapMetrics()
 
-    print(ts_cap_metrics.calculate_metrics(references, predictions))
+    print(ts_cap_metrics.calculate_metrics(references, predictions, java_path="/usr/lib/jvm/java-11-openjdk-amd64/bin/java"))
