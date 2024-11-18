@@ -6,4 +6,6 @@ if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 
-srun --gres=gpu:6 --mem=60G singularity exec  --nv /ceph/container/pytorch/pytorch_24.09.sif bash ./main.sh "$@"
+OCCUPIED_NODES="$(sinfo | grep -oP '(?<=mix )(ailab-l4-\[.+?\])')"
+echo "${OCCUPIED_NODES}"
+srun --gres=gpu:6 --mem=60G --exclude="${OCCUPIED_NODES}" singularity exec  --nv /ceph/container/pytorch/pytorch_24.09.sif bash ./main.sh "$@"
