@@ -3,12 +3,12 @@ import datetime
 import os
 import time
 
+import config
 import pandas as pd
 import torch
 from parse_ptb import load_raw_data, preprocess
 from ts2vec import TS2Vec
 from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
-import config
 
 
 def load_ptb_data(data_path="data/ptb-xl/"):
@@ -55,11 +55,11 @@ def main(args):
         output_dims=args.repr_dims,
         max_train_length=args.max_train_length,
     )
-
-    loss_log = model.fit(
-        train_data, val_data, n_epochs=args.epochs, n_iters=args.iters, verbose=True
+    # This saves the model on it's own too when it's done training
+    model.fit(
+        train_data, val_data, settled = args.settled,  model_name=args.model_name, n_epochs=args.epochs, n_iters=args.iters, verbose=True
     )
-    model.save(f"{output_dir}/model.pkl")
+    #model.save(f"{output_dir}/{args.model_name}.pkl")
 
     t = time.time() - t
     print(f"\nTraining time: {datetime.timedelta(seconds=t)}\n")
@@ -71,6 +71,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--batch-size", type=int, default=8, help="The batch size (defaults to 8)"
+    )
+    parser.add_argument(
+        "--model_name",
+        required=True,
+        type=str,
+        default="model",
+        help="The name of the pkl file for the model without the extension (defaults to model)",
+    )
+    parser.add_argument(
+        "--settled",
+        type=int,
+        default=3,
+        help="number of epochs to wait before early stopping if no improvement",
     )
     parser.add_argument(
         "--lr", type=float, default=0.001, help="The learning rate (defaults to 0.001)"
