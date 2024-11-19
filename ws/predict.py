@@ -1,11 +1,10 @@
+import config
 import torch
 import torch.nn.functional as nnf
 from torch.utils.data import DataLoader
+from train_mapping import ClipCaptionModel, ClipCaptionPrefix, PTBXLEncodedDataset
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from typing_extensions import override
-
-import config
-from train_mapping import ClipCaptionModel, ClipCaptionPrefix, PTBXLEncodedDataset
 from utils import pkl_load
 
 T = torch.Tensor
@@ -80,7 +79,7 @@ def generate2(
 def main():
     # setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2-medium")
     snapshot_path = "data/tscap/tscap_snapshot.pt"
     model = ClipCaptionModel(
         config.prefix_length, config.ts_embedding_length, num_layers=config.num_layers
