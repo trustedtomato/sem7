@@ -72,9 +72,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--batch-size", type=int, default=8, help="The batch size (defaults to 8)"
-    )
-    parser.add_argument(
         "--model_name",
         required=True,
         type=str,
