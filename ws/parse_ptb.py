@@ -6,9 +6,8 @@ import numpy as np
 import pandas as pd
 import scipy.signal
 import torch
-from tqdm import tqdm
 import wfdb
-
+from tqdm import tqdm
 from ts2vec import TS2Vec
 from utils import pkl_load, pkl_save
 
@@ -82,18 +81,32 @@ def main():
             preprocessed_data.copy(), encoding_window="full_series"
         )
         print(f"Saving parsed {out_name} data")
+
+        filtered_trace = 0
+        filtered_unconfirmed = 0
+        filtered_nans = 0
+        parsed_data = []
+        for i in range(len(dataset)):
+            embedding = encoded_data[i]
+            report = dataset.iloc[i].report
+            ecg_id = dataset.iloc[i].ecg_id
+            if type(report) == float:
+                filtered_nans += 1
+                continue
+            if "trace only" in report:
+                filtered_trace += 1
+                continue
+            if "unconfirmed report" in report:
+                filtered_unconfirmed += 1
+                report = report.replace("unconfirmed report", "")
+
+            parsed_data.append({"embedding": embedding, "report": report, "ecg_id": ecg_id})
+
         pkl_save(
             out_folder + f"parsed_ptb_{out_name}.pkl",
-            [
-                {
-                    "embedding": encoded_data[i],
-                    "report": dataset.iloc[i].report,
-                    "ecg_id": dataset.iloc[i].ecg_id,
-                }
-                for i in range(len(dataset))
-            ],
+            parsed_data
         )
-
+        print(f"Filtered {filtered_trace} trace only reports, {filtered_unconfirmed} unconfirmed reports and {filtered_nans} NaNs")
     print(f"Time taken: {time.time()-t}")
 
     # This code is for processing the data in batches of n_samples if the memory
