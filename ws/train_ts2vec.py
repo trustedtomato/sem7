@@ -48,11 +48,13 @@ def main(args):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = TS2Vec(
-        input_dims=train_data.shape[-1],
+        input_dim=train_data.shape[-1],
+        depth=config.tsencoder_depth,
+        hidden_dim=config.tsencoder_hidden_dim,
+        batch_size=config.tsencoder_batch_size,
         device=device,
-        batch_size=args.batch_size,
         lr=args.lr,
-        output_dims=args.repr_dims,
+        output_dim=config.ts_embedding_dim,
         max_train_length=args.max_train_length,
     )
 
@@ -70,16 +72,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--batch-size", type=int, default=8, help="The batch size (defaults to 8)"
-    )
-    parser.add_argument(
         "--lr", type=float, default=0.001, help="The learning rate (defaults to 0.001)"
-    )
-    parser.add_argument(
-        "--repr-dims",
-        type=int,
-        default=config.prefix_embedding_size,
-        help="The representation dimension (defaults to 320)",
     )
     parser.add_argument(
         "--max-train-length",
@@ -90,7 +83,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--iters", type=int, default=None, help="The number of iterations"
     )
-    parser.add_argument("--epochs", type=int, default=None, help="The number of epochs")
+    parser.add_argument(
+        "--epochs", type=int, default=None, help="The number of maximum epochs"
+    )
     parser.add_argument(
         "--save-every",
         type=int,

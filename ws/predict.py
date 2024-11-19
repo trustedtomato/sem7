@@ -82,7 +82,9 @@ def main():
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2-medium")
     snapshot_path = "data/tscap/tscap_snapshot.pt"
     model = ClipCaptionModel(
-        config.prefix_length, config.ts_embedding_length, num_layers=config.num_layers
+        config.prefix_length,
+        config.ts_embedding_length,
+        num_layers=config.mapper_num_layers,
     )
     state = torch.load(
         snapshot_path, map_location=torch.device("cpu"), weights_only=True

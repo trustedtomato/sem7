@@ -20,13 +20,13 @@ class TS2Vec:
 
     def __init__(
         self,
-        input_dims,
-        output_dims=320,
-        hidden_dims=64,
-        depth=10,
-        device="cuda",
+        input_dim,
+        output_dim,
+        hidden_dim,
+        depth,
+        device,
+        batch_size,
         lr=0.001,
-        batch_size=16,
         max_train_length=None,
         temporal_unit=0,
         after_iter_callback=None,
@@ -56,9 +56,9 @@ class TS2Vec:
         self.temporal_unit = temporal_unit
 
         self._net = TSEncoder(
-            input_dims=input_dims,
-            output_dims=output_dims,
-            hidden_dims=hidden_dims,
+            input_dims=input_dim,
+            output_dims=output_dim,
+            hidden_dims=hidden_dim,
             depth=depth,
         ).to(self.device)
         self.net = torch.optim.swa_utils.AveragedModel(self._net)
