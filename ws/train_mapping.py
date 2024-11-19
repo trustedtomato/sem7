@@ -4,7 +4,7 @@ import os
 from typing import Optional, Tuple
 
 import torch
-from torch.distributed import destroy_process_group, init_process_group
+from torch.distributed import all_reduce, destroy_process_group, init_process_group
 import torch.nn as nn
 from torch.nn import functional as nnf
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -333,6 +333,7 @@ class ClipCaptionPrefix(ClipCaptionModel):
 
 def train(
     dataset: PTBXLEncodedDataset,
+    val_dataset: PTBXLEncodedDataset,
     model: nn.Module,
     device: int,
     args,
@@ -347,40 +348,75 @@ def train(
     print(f"Using device {device}")
     model = model.to(device)
     model = DDP(model, device_ids=[device])
-    model.train()
     optimizer = AdamW(model.parameters(), lr=lr)
-    sampler = DistributedSampler(dataset)
+    train_sampler = DistributedSampler(dataset)
+    val_sampler = DistributedSampler(val_dataset)
     train_dataloader = DataLoader(
-        dataset, batch_size=args.bs, shuffle=False, drop_last=True, sampler=sampler
+        dataset,
+        batch_size=args.bs,
+        shuffle=False,
+        drop_last=True,
+        sampler=train_sampler,
     )
-    scheduler = get_linear_schedule_with_warmup(
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=args.bs,
+        shuffle=False,
+        drop_last=True,
+        sampler=val_sampler,
+    )
+    train_scheduler = get_linear_schedule_with_warmup(
         optimizer,
         num_warmup_steps=warmup_steps,
         num_training_steps=args.epochs * len(train_dataloader),
     )
 
-    # define losses type
-    def save_snapshot(epoch: int, losses: list[float] = []):
-        snapshot = {
-            "state": model.state_dict(),
-            "current_epoch": epoch,
-            "losses": losses,
-        }
-        torch.save(snapshot, snapshot_path)
-
     # Load snapshot if exists
-    start_epoch = 0
-    losses: list[float] = []
     if os.path.exists(snapshot_path):
         snapshot = torch.load(snapshot_path, weights_only=True)
         model.load_state_dict(snapshot["state"])
         start_epoch = snapshot["current_epoch"] + 1
-        losses = snapshot["losses"]
+        train_losses = snapshot["train_losses"]
+        val_losses = snapshot["val_losses"]
+        best_state = snapshot["best_state"]
+    else:
+        best_state = model.state_dict()
+        start_epoch = 0
+        train_losses: list[float] = []
+        val_losses: list[float] = []
+
+    def save_snapshot(epoch: int, train_losses: list[float], val_losses: list[float]):
+        current_train_loss = train_losses[-1]
+        current_val_loss = val_losses[-1]
+        current_state = model.state_dict()
+        if current_train_loss <= min(train_losses) and current_val_loss <= min(
+            val_losses
+        ):
+            nonlocal best_state
+            best_state = current_state
+
+        snapshot = {
+            "best_state": best_state,
+            "state": current_state,
+            "current_epoch": epoch,
+            "train_losses": train_losses,
+            "val_losses": val_losses,
+        }
+        torch.save(snapshot, snapshot_path)
 
     is_master = device == 0
 
+    train_batch_count = len(train_dataloader)
+    val_batch_count = len(val_dataloader)
+
     for epoch in range(start_epoch, args.epochs):
         print(f">>> Training epoch {epoch} on device {device}")
+        sum_train_loss = 0
+        sum_val_loss = 0
+
+        model.train()
+        torch.set_grad_enabled(True)
+
         for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
             model.zero_grad()
             tokens, mask, prefix = (
@@ -395,17 +431,76 @@ def train(
                 tokens.flatten(),
                 ignore_index=0,
             )
+
+            # Average the loss across all nodes
+            loss_for_logging = loss.clone()
+            torch.distributed.all_reduce(
+                loss_for_logging, op=torch.distributed.ReduceOp.SUM
+            )
+            loss_for_logging /= torch.distributed.get_world_size()
+            sum_train_loss += loss_for_logging.item()
+
+            if is_master:
+                progress = (
+                    f"{str(idx).rjust(len(str(train_batch_count)))}/{train_batch_count}"
+                )
+                print(f"Epoch {epoch}, {progress}, loss: {loss_for_logging.item()}")
+
             loss.backward()
             optimizer.step()
-            scheduler.step()
+            train_scheduler.step()
             optimizer.zero_grad()
+
+        model.eval()
+        torch.set_grad_enabled(False)
+
+        for idx, (tokens, mask, prefix) in enumerate(val_dataloader):
+            tokens, mask, prefix = (
+                tokens.to(device),
+                mask.to(device),
+                prefix.to(device, dtype=torch.float32),
+            )
+            outputs = model(tokens, prefix, mask)
+            logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
+            loss = nnf.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]),
+                tokens.flatten(),
+                ignore_index=0,
+            )
+
+            # Average the loss across all nodes
+            loss_for_logging = loss
+            torch.distributed.all_reduce(
+                loss_for_logging, op=torch.distributed.ReduceOp.SUM
+            )
+            loss_for_logging /= torch.distributed.get_world_size()
+            sum_val_loss += loss_for_logging.item()
+
             if is_master:
-                progress = f"{str(idx).rjust(len(str(len(train_dataloader))))}/{len(train_dataloader)}"
-                print(f"Epoch {epoch}, {progress}, loss: {loss.item()}")
-                losses.append(loss.item())
+                progress = (
+                    f"{str(idx).rjust(len(str(val_batch_count)))}/{val_batch_count}"
+                )
+                print(f"Epoch {epoch}, {progress}, val loss: {loss_for_logging.item()}")
+
+        train_loss = sum_train_loss / train_batch_count
+        val_loss = sum_val_loss / val_batch_count
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+
         if is_master:
+            print(">>> Epoch", epoch, "train loss", train_loss, "val loss", val_loss)
             print("Saving snapshot")
-            save_snapshot(epoch)
+
+            if len(val_losses) > args.settled:
+                global_minimum = min(val_losses)
+                local_minimum = min(val_losses[-args.settled :])
+                if local_minimum > global_minimum:
+                    print(
+                        f"No improvement in {args.settled} epochs. Stopping training on device {device}"
+                    )
+                    break
+
+            save_snapshot(epoch, train_losses, val_losses)
 
     return model
 
@@ -415,6 +510,13 @@ def main(args):
 
     dataset = PTBXLEncodedDataset(
         data_path=args.data,
+        prefix_length=args.prefix_length,
+        gpt2_type="gpt2",
+        normalize_prefix=args.normalize_prefix,
+    )
+
+    val_dataset = PTBXLEncodedDataset(
+        data_path=args.val_data,
         prefix_length=args.prefix_length,
         gpt2_type="gpt2",
         normalize_prefix=args.normalize_prefix,
@@ -438,21 +540,28 @@ def main(args):
         )
         print("Train both prefix and GPT")
 
-    train(dataset, model, device, args)
+    train(dataset, val_dataset, model, device, args)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
+    parser.add_argument("--val_data", default="./data/ptb-xl/parsed_ptb_val.pkl")
     parser.add_argument("--out_dir", default="./data/tscap")
     parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument(
+        "--settled",
+        type=int,
+        default=5,
+        help="number of epochs to wait before early stopping if no improvement",
+    )
     parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
     parser.add_argument(
         "--prefix_length_clip", type=int, default=config.ts_embedding_length
     )
     parser.add_argument("--bs", type=int, default=40)
-    parser.add_argument("--only_prefix", dest="only_prefix", action="store_true")
+    parser.add_argument("--only_prefix", action="store_true")
     parser.add_argument("--num_layers", type=int, default=config.num_layers)
     parser.add_argument(
         "--normalize_prefix", dest="normalize_prefix", action="store_true"
