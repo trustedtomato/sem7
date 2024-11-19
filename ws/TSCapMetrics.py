@@ -126,9 +126,9 @@ class TSCapMetrics:
         self,
         ref_sentences: list[str],
         hyp_sentences: list[list[str]],
-        out_dir: str = None,
-        out_name: str = None,
-        java_path: str = None,
+        out_dir: str | None = None,
+        out_name: str | None = None,
+        java_path: str | None = None,
     ):
         # hyp_sentences should be a list of list of strings where the dimensions are [n_samples, n_sentences]
         # So you would run predict n_samples amount of times and store the result of predict in a list of size n_sentences
