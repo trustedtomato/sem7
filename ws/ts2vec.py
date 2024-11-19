@@ -1,18 +1,19 @@
+import math
 import os
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import TensorDataset, DataLoader
-import numpy as np
 from models import TSEncoder
 from models.losses import hierarchical_contrastive_loss
+from torch.utils.data import DataLoader, TensorDataset
 from utils import (
     Logger,
-    take_per_row,
-    split_with_nan,
     centerize_vary_length_series,
+    split_with_nan,
+    take_per_row,
     torch_pad_nan,
 )
-import math
 
 
 class TS2Vec:
@@ -138,12 +139,13 @@ class TS2Vec:
 
     def fit(
         self,
-        train_data,
-        val_data,
-        n_epochs=None,
-        n_iters=None,
-        verbose=False,
-        logger: Logger | None = None,
+        train_data: np.ndarray,
+        val_data: np.ndarray,
+        settled: int,
+        model_name: str | None = None,
+        n_epochs: int | None = None,
+        n_iters: int | None = None,
+        verbose: bool = False,
     ):
         """Training the TS2Vec model.
 
@@ -175,7 +177,7 @@ class TS2Vec:
             train_data = centerize_vary_length_series(train_data)
 
         train_data = train_data[~np.isnan(train_data).all(axis=2).all(axis=1)]
-
+        print("Creating training dataset")
         train_dataset = TensorDataset(torch.from_numpy(train_data).to(torch.float))
         train_loader = DataLoader(
             train_dataset,
@@ -183,6 +185,7 @@ class TS2Vec:
             shuffle=True,
             drop_last=True,
         )
+        print("Creating validation dataset")
         val_dataset = TensorDataset(torch.from_numpy(val_data).to(torch.float))
         val_loader = DataLoader(
             val_dataset,
@@ -190,9 +193,44 @@ class TS2Vec:
             shuffle=True,
             drop_last=True,
         )
+        # Load snapshot if it exists
+        snapshot_path = f"data/ts2vec/{model_name}_snapshot.pt"
+        if os.path.exists(snapshot_path):
+            snapshot = torch.load(snapshot_path, weights_only=True)
+            self.net.load_state_dict(snapshot["state"])
+            self.n_epochs = snapshot["current_epoch"] + 1
+            train_losses = snapshot["train_losses"]
+            val_losses = snapshot["val_losses"]
+            best_state = snapshot["best_state"]
+        else:
+            best_state = self.net.state_dict()
+            self.n_epochs = 0
+            train_losses: list[float] = []
+            val_losses: list[float] = []
+
+        def save_snapshot(
+            epoch: int, train_losses: list[float], val_losses: list[float]
+        ):
+            current_train_loss = train_losses[-1]
+            current_val_loss = val_losses[-1]
+            current_state = self.net.state_dict()
+            if current_train_loss <= min(train_losses) and current_val_loss <= min(
+                val_losses
+            ):
+                nonlocal best_state
+                best_state = current_state
+
+            snapshot = {
+                "best_state": best_state,
+                "state": current_state,
+                "current_epoch": epoch,
+                "train_losses": train_losses,
+                "val_losses": val_losses,
+            }
+            torch.save(snapshot, snapshot_path)
 
         optimizer = torch.optim.AdamW(self._net.parameters(), lr=self.lr)
-
+        print("Starting training")
         while True:
             if n_epochs is not None and self.n_epochs >= n_epochs:
                 break
@@ -203,12 +241,19 @@ class TS2Vec:
             val_average_loss, _ = self._train_or_val(
                 val_loader, optimizer, None, mode="val"
             )
+            train_losses.append(train_average_loss)
+            val_losses.append(val_average_loss)
 
+            if len(val_losses) > settled:
+                global_minimum = min(val_losses)
+                local_minimum = min(val_losses[-settled:])
+                if local_minimum > global_minimum:
+                    print(f"No improvement in {settled} epochs. Stopping training")
+                    break
+
+            save_snapshot(self.n_epochs, train_losses, val_losses)
             if interrupted:
                 break
-
-            if logger is not None:
-                logger.log(f"{train_average_loss} {val_average_loss}")
 
             if verbose:
                 print(
