@@ -28,34 +28,6 @@ def ddp_setup() -> int:
 
 
 class PTBXLEncodedDataset(Dataset):
-    def __len__(self) -> int:
-        return len(self.report_tokens)
-
-    def pad_tokens(self, index: int):
-        tokens = self.report_tokens[index]
-        padding = self.max_seq_len - tokens.shape[0]
-        if padding > 0:
-            tokens = torch.cat((tokens, torch.zeros(padding, dtype=torch.int64) - 1))
-            self.report_tokens[index] = tokens
-        elif padding < 0:
-            tokens = tokens[: self.max_seq_len]
-            self.report_tokens[index] = tokens
-        mask = tokens.ge(0)  # mask is zero where we out of sequence
-        tokens[~mask] = 0
-        mask = mask.float()
-        mask = torch.cat(
-            (torch.ones(self.prefix_length), mask), dim=0
-        )  # adding prefix mask
-        return tokens, mask
-
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, ...]:
-        tokens, mask = self.pad_tokens(index)
-        encoder_embedding = self.encoder_embeddings[index]
-        if self.normalize_prefix:
-            encoder_embedding = encoder_embedding.float()
-            encoder_embedding = encoder_embedding / encoder_embedding.norm(2, -1)
-        return tokens, mask, encoder_embedding
-
     def __init__(
         self,
         data_path: str,
@@ -87,6 +59,34 @@ class PTBXLEncodedDataset(Dataset):
             self.report_tokens.append(report_tokenized)
 
         self.max_seq_len = max([len(tokens) for tokens in self.report_tokens])
+
+    def __len__(self) -> int:
+        return len(self.report_tokens)
+
+    def pad_tokens(self, index: int):
+        tokens = self.report_tokens[index]
+        padding = self.max_seq_len - tokens.shape[0]
+        if padding > 0:
+            tokens = torch.cat((tokens, torch.zeros(padding, dtype=torch.int64) - 1))
+            self.report_tokens[index] = tokens
+        elif padding < 0:
+            tokens = tokens[: self.max_seq_len]
+            self.report_tokens[index] = tokens
+        mask = tokens.ge(0)  # mask is zero where we out of sequence
+        tokens[~mask] = 0
+        mask = mask.float()
+        mask = torch.cat(
+            (torch.ones(self.prefix_length), mask), dim=0
+        )  # adding prefix mask
+        return tokens, mask
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, ...]:
+        tokens, mask = self.pad_tokens(index)
+        encoder_embedding = self.encoder_embeddings[index]
+        if self.normalize_prefix:
+            encoder_embedding = encoder_embedding.float()
+            encoder_embedding = encoder_embedding / encoder_embedding.norm(2, -1)
+        return tokens, mask, encoder_embedding
 
 
 class MlpTransformer(nn.Module):
@@ -250,7 +250,7 @@ class Transformer(nn.Module):
 
 class TransformerMapper(nn.Module):
     def forward(self, x):
-        x = self.linear(x).view(x.shape[0], self.clip_length, -1)
+        x = self.linear(x).view(x.shape[0], self.ts_embedding_length, -1)
         # print("x shape: ", x.shape)
         prefix = self.prefix_const.unsqueeze(0)
         # print("prefix shape: ", prefix.shape)
@@ -260,28 +260,48 @@ class TransformerMapper(nn.Module):
         # print("prefix shape after cat: ", prefix.shape)
         out = self.transformer(prefix)
         # print("out shape: ", out.shape)
-        out = out[:, self.clip_length :]
+        out = out[:, self.ts_embedding_length :]
         # print("out shape after slicing: ", out.shape)
         return out
 
     def __init__(
         self,
-        dim_clip: int,
-        dim_embedding: int,
+        ts_embedding_dim: int,
+        prefix_dim: int,
         prefix_length: int,
-        clip_length: int,
+        ts_embedding_length: int,
         num_layers: int = 8,
     ):
-        super(TransformerMapper, self).__init__()
-        self.clip_length = clip_length
-        self.transformer = Transformer(dim_embedding, 8, num_layers)
-        self.linear = nn.Linear(dim_clip, clip_length * dim_embedding)
+        super().__init__()
+        self.ts_embedding_length = ts_embedding_length
+        self.linear = nn.Linear(ts_embedding_dim, ts_embedding_length * prefix_dim)
+        self.transformer = Transformer(prefix_dim, 8, num_layers)
         self.prefix_const = nn.Parameter(
-            torch.randn(prefix_length, dim_embedding), requires_grad=True
+            torch.randn(prefix_length, prefix_dim), requires_grad=True
         )
 
 
 class ClipCaptionModel(nn.Module):
+    def __init__(
+        self,
+        prefix_length: int,
+        ts_embedding_length: int,
+        ts_embedding_dim: int,
+        num_layers: int,
+        gpt2_type: str = "gpt2-medium",
+    ):
+        super().__init__()
+        self.prefix_length = prefix_length
+        self.gpt = GPT2LMHeadModel.from_pretrained(gpt2_type)
+        self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
+        self.clip_project = TransformerMapper(
+            ts_embedding_dim=ts_embedding_dim,
+            prefix_dim=self.gpt_embedding_size,
+            prefix_length=prefix_length,
+            ts_embedding_length=ts_embedding_length,
+            num_layers=num_layers,
+        )
+
     def get_dummy_token(self, batch_size: int, device: torch.device) -> torch.Tensor:
         return torch.zeros(
             batch_size, self.prefix_length, dtype=torch.int64, device=device
@@ -304,22 +324,6 @@ class ClipCaptionModel(nn.Module):
             labels = torch.cat((dummy_token, tokens), dim=1)
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
         return out
-
-    def __init__(
-        self,
-        prefix_length: int,
-        clip_length: int,
-        prefix_size: int = 320,
-        num_layers: int = 8,
-        gpt2_type: str = "gpt2-medium",
-    ):
-        super().__init__()
-        self.prefix_length = prefix_length
-        self.gpt = GPT2LMHeadModel.from_pretrained(gpt2_type)
-        self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        self.clip_project = TransformerMapper(
-            prefix_size, self.gpt_embedding_size, prefix_length, clip_length, num_layers
-        )
 
 
 class ClipCaptionPrefix(ClipCaptionModel):
@@ -354,14 +358,14 @@ def train(
     val_sampler = DistributedSampler(val_dataset)
     train_dataloader = DataLoader(
         dataset,
-        batch_size=args.bs,
+        batch_size=config.mapper_batch_size,
         shuffle=False,
         drop_last=True,
         sampler=train_sampler,
     )
     val_dataloader = DataLoader(
         val_dataset,
-        batch_size=args.bs,
+        batch_size=config.mapper_batch_size,
         shuffle=False,
         drop_last=True,
         sampler=val_sampler,
@@ -407,11 +411,15 @@ def train(
 
     is_master = device == 0
 
+    def print_master(*args, **kwargs):
+        if is_master:
+            print(*args, **kwargs)
+
     train_batch_count = len(train_dataloader)
     val_batch_count = len(val_dataloader)
 
     for epoch in range(start_epoch, args.epochs):
-        print(f">>> Training epoch {epoch} on device {device}")
+        print_master(f">>> Training epoch {epoch}")
         sum_train_loss = 0
         sum_val_loss = 0
 
@@ -441,11 +449,10 @@ def train(
             loss_for_logging /= torch.distributed.get_world_size()
             sum_train_loss += loss_for_logging.item()
 
-            if is_master:
-                progress = (
-                    f"{str(idx).rjust(len(str(train_batch_count)))}/{train_batch_count}"
-                )
-                print(f"Epoch {epoch}, {progress}, loss: {loss_for_logging.item()}")
+            progress = (
+                f"{str(idx).rjust(len(str(train_batch_count)))}/{train_batch_count}"
+            )
+            print_master(f"Epoch {epoch}, {progress}, loss: {loss_for_logging.item()}")
 
             loss.backward()
             optimizer.step()
@@ -477,29 +484,27 @@ def train(
             loss_for_logging /= torch.distributed.get_world_size()
             sum_val_loss += loss_for_logging.item()
 
-            if is_master:
-                progress = (
-                    f"{str(idx).rjust(len(str(val_batch_count)))}/{val_batch_count}"
-                )
-                print(f"Epoch {epoch}, {progress}, val loss: {loss_for_logging.item()}")
+            progress = f"{str(idx).rjust(len(str(val_batch_count)))}/{val_batch_count}"
+            print_master(
+                f"Epoch {epoch}, {progress}, val loss: {loss_for_logging.item()}"
+            )
 
         train_loss = sum_train_loss / train_batch_count
         val_loss = sum_val_loss / val_batch_count
         train_losses.append(train_loss)
         val_losses.append(val_loss)
 
-        if is_master:
-            print(">>> Epoch", epoch, "train loss", train_loss, "val loss", val_loss)
-            print("Saving snapshot")
+        print_master(">>> Epoch", epoch, "train loss", train_loss, "val loss", val_loss)
+        print_master("Saving snapshot")
 
-            if len(val_losses) > args.settled:
-                global_minimum = min(val_losses)
-                local_minimum = min(val_losses[-args.settled :])
-                if local_minimum > global_minimum:
-                    print(
-                        f"No improvement in {args.settled} epochs. Stopping training on device {device}"
-                    )
-                    break
+        if len(val_losses) > args.settled:
+            global_minimum = min(val_losses)
+            local_minimum = min(val_losses[-args.settled :])
+            if local_minimum > global_minimum:
+                print_master(
+                    f"No improvement in {args.settled} epochs. Stopping training on device {device}"
+                )
+                break
 
             save_snapshot(epoch, train_losses, val_losses)
 
@@ -511,35 +516,30 @@ def main(args):
 
     dataset = PTBXLEncodedDataset(
         data_path=args.data,
-        prefix_length=args.prefix_length,
-        gpt2_type="openai-community/gpt2-medium",
+        prefix_length=config.prefix_length,
         normalize_prefix=args.normalize_prefix,
     )
 
     val_dataset = PTBXLEncodedDataset(
         data_path=args.val_data,
-        prefix_length=args.prefix_length,
-        gpt2_type="gpt2",
+        prefix_length=config.prefix_length,
         normalize_prefix=args.normalize_prefix,
     )
 
-    prefix_dim = 320
     if args.only_prefix:
         model = ClipCaptionPrefix(
             args.prefix_length,
-            clip_length=args.prefix_length_clip,
-            prefix_size=prefix_dim,
-            num_layers=args.num_layers,
-            gpt2_type="openai-community/gpt2-medium",
+            ts_embedding_length=config.ts_embedding_length,
+            ts_embedding_dim=config.ts_embedding_dim,
+            num_layers=config.mapper_num_layers,
         )
         print("Train only prefix")
     else:
         model = ClipCaptionModel(
             args.prefix_length,
-            clip_length=args.prefix_length_clip,
-            prefix_size=prefix_dim,
-            num_layers=args.num_layers,
-            gpt2_type="openai-community/gpt2-medium",
+            ts_embedding_length=config.ts_embedding_length,
+            ts_embedding_dim=config.ts_embedding_dim,
+            num_layers=config.mapper_num_layers,
         )
         print("Train both prefix and GPT")
 
@@ -559,13 +559,7 @@ if __name__ == "__main__":
         default=5,
         help="number of epochs to wait before early stopping if no improvement",
     )
-    parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
-    parser.add_argument(
-        "--prefix_length_clip", type=int, default=config.ts_embedding_length
-    )
-    parser.add_argument("--bs", type=int, default=16)
     parser.add_argument("--only_prefix", action="store_true")
-    parser.add_argument("--num_layers", type=int, default=config.num_layers)
     parser.add_argument(
         "--normalize_prefix", dest="normalize_prefix", action="store_true"
     )

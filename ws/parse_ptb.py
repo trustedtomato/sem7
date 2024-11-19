@@ -37,7 +37,7 @@ def load_raw_data(df, sampling_rate, path):
 
 
 def load_encoder(path=None):
-    encoder = TS2Vec(input_dims=12, device="cuda")
+    encoder = TS2Vec(input_dim=12, device="cuda")
     if path is not None:
         assert os.path.exists(path), "Encoder model path does not exist"
         encoder.load(path)
@@ -100,13 +100,14 @@ def main():
                 filtered_unconfirmed += 1
                 report = report.replace("unconfirmed report", "")
 
-            parsed_data.append({"embedding": embedding, "report": report, "ecg_id": ecg_id})
+            parsed_data.append(
+                {"embedding": embedding, "report": report, "ecg_id": ecg_id}
+            )
 
-        pkl_save(
-            out_folder + f"parsed_ptb_{out_name}.pkl",
-            parsed_data
+        pkl_save(out_folder + f"parsed_ptb_{out_name}.pkl", parsed_data)
+        print(
+            f"Filtered {filtered_trace} trace only reports, {filtered_unconfirmed} unconfirmed reports and {filtered_nans} NaNs"
         )
-        print(f"Filtered {filtered_trace} trace only reports, {filtered_unconfirmed} unconfirmed reports and {filtered_nans} NaNs")
     print(f"Time taken: {time.time()-t}")
 
     # This code is for processing the data in batches of n_samples if the memory
