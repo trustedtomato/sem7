@@ -105,10 +105,10 @@ def main(args):
     hypotheses = []
     references = []
     print("Generating predictions...")
-    for _ in range(10):
+    for _ in range(5):
         hyp = []
         ref = []
-        for idx, (tokens, mask, prefix) in tqdm(list(enumerate(test_dataloader))[:10]):
+        for idx, (tokens, mask, prefix) in tqdm(enumerate(test_dataloader)):
             tokens = tokens.to(device)
             mask = mask.to(device)
             prefix = prefix.to(device)
@@ -120,7 +120,7 @@ def main(args):
             hyp.append(x)
             ref.append(tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
             # print("gener", x)
-            print("truth", tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
+            # print("truth", tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
         hypotheses.append(hyp)
         if len(references) == 0:
             references = ref
