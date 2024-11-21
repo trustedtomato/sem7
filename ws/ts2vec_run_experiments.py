@@ -7,10 +7,12 @@ with open("ts2vec_experiments.json", "r") as f:
 processes = []
 
 for experiment in experiments:
-    model_name = experiment["model_name"]
     tsencoder_depth = experiment["tsencoder_depth"]
     tsencoder_hidden_dim = experiment["tsencoder_hidden_dim"]
     ts_embedding_dim = experiment["ts_embedding_dim"]
+    model_name = (
+        f"ts2vec_hd{tsencoder_hidden_dim}_d{tsencoder_depth}_ed{ts_embedding_dim}"
+    )
     command = [
         "srun",
         "--gres=gpu:1",
