@@ -1,0 +1,32 @@
+[
+    {
+        "model_name": "ts2vec_hd64_d10_ed512",
+        "tsencoder_hidden_dim": 64,
+        "tsencoder_depth": 10,
+        "ts_embedding_dim": 512    
+    },
+    {
+        "model_name": "ts2vec_hd64_d10_ed1024",
+        "tsencoder_hidden_dim": 64,
+        "tsencoder_depth": 10,
+        "ts_embedding_dim": 1024    
+    },
+    {
+        "model_name": "ts2vec_hd64_d20_ed512",
+        "tsencoder_hidden_dim": 64,
+        "tsencoder_depth": 20,
+        "ts_embedding_dim": 512    
+    },
+    {
+        "model_name": "ts2vec_hd128_d10_ed512",
+        "tsencoder_hidden_dim": 128,
+        "tsencoder_depth": 10,
+        "ts_embedding_dim": 512    
+    },
+    {
+        "model_name": "ts2vec_hd128_d20_ed1024",
+        "tsencoder_hidden_dim": 128,
+        "tsencoder_depth": 20,
+        "ts_embedding_dim": 1024    
+    }
+]

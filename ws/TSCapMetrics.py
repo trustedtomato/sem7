@@ -1,5 +1,8 @@
 import os
 
+import nltk
+
+nltk.download("wordnet")
 import numpy as np
 import pandas as pd
 import ptbtok
