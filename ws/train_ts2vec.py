@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 import os
 import time
 
@@ -43,25 +44,41 @@ def main(args):
 
     output_dir = "data/ts2vec"
     os.makedirs(output_dir, exist_ok=True)
-
     t = time.time()
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = TS2Vec(
-        input_dim=train_data.shape[-1],
-        depth=config.tsencoder_depth,
-        hidden_dim=config.tsencoder_hidden_dim,
-        batch_size=config.tsencoder_batch_size,
-        device=device,
-        lr=args.lr,
-        output_dim=config.ts_embedding_dim,
-        max_train_length=args.max_train_length,
-    )
+    if not args.use_config:
+        model = TS2Vec(
+            input_dim=train_data.shape[-1],
+            depth=args.tsencoder_depth,
+            hidden_dim=args.tsencoder_hidden_dim,
+            batch_size=config.tsencoder_batch_size,
+            device=device,
+            lr=args.lr,
+            output_dim=args.ts_embedding_dim,
+            max_train_length=args.max_train_length,
+        )
+    else:
+        model = TS2Vec(
+            input_dim=train_data.shape[-1],
+            depth=config.tsencoder_depth,
+            hidden_dim=config.tsencoder_hidden_dim,
+            batch_size=config.tsencoder_batch_size,
+            device=device,
+            lr=args.lr,
+            output_dim=config.ts_embedding_dim,
+            max_train_length=args.max_train_length,
+        )
     # This saves the model on it's own too when it's done training
     model.fit(
-        train_data, val_data, settled = args.settled,  model_name=args.model_name, n_epochs=args.epochs, n_iters=args.iters, verbose=True
+        train_data,
+        val_data,
+        settled=args.settled,
+        model_name=args.model_name,
+        n_epochs=args.epochs,
+        n_iters=args.iters,
+        verbose=True,
     )
-    #model.save(f"{output_dir}/{args.model_name}.pkl")
+    # #model.save(f"{output_dir}/{args.model_name}.pkl")
 
     t = time.time() - t
     print(f"\nTraining time: {datetime.timedelta(seconds=t)}\n")
@@ -104,6 +121,25 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="Save the checkpoint every <save_every> iterations/epochs",
+    )
+    parser.add_argument("--use_config", dest="use_config", action="store_true")
+    parser.add_argument(
+        "--tsencoder_hidden_dim",
+        type=int,
+        default=config.tsencoder_hidden_dim,
+        help="If not using config set the hidden dimension of the encoder",
+    )
+    parser.add_argument(
+        "--tsencoder_depth",
+        type=int,
+        default=config.tsencoder_depth,
+        help="If not using config set the depth of the encoder",
+    )
+    parser.add_argument(
+        "--ts_embedding_dim",
+        type=int,
+        default=config.ts_embedding_dim,
+        help="If not using config set the embedding dimension of the encoder",
     )
     args = parser.parse_args()
 

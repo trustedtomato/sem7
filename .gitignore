@@ -161,6 +161,11 @@ cython_debug/
 /ws/data/ptb-xl/*
 !/ws/data/ptb-xl/.gitkeep
 
+ws/.experiment_scripts/*
+ws/figures/*
+ws/results/*
+ws/metrics/*
+
 .rsyncignore_local
 
 # PyCharm
