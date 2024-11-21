@@ -281,7 +281,7 @@ class TransformerMapper(nn.Module):
         )
 
 
-class ClipCaptionModel(nn.Module):
+class TsCaptionModel(nn.Module):
     def __init__(
         self,
         prefix_length: int,
@@ -326,7 +326,7 @@ class ClipCaptionModel(nn.Module):
         return out
 
 
-class ClipCaptionPrefix(ClipCaptionModel):
+class TsCaptionPrefix(TsCaptionModel):
     def parameters(self, recurse: bool = True):
         return self.clip_project.parameters()
 
@@ -497,6 +497,9 @@ def train(
         print_master(">>> Epoch", epoch, "train loss", train_loss, "val loss", val_loss)
         print_master("Saving snapshot")
 
+        if is_master:
+            save_snapshot(epoch, train_losses, val_losses)
+
         if len(val_losses) > args.settled:
             global_minimum = min(val_losses)
             local_minimum = min(val_losses[-args.settled :])
@@ -505,8 +508,6 @@ def train(
                     f"No improvement in {args.settled} epochs. Stopping training on device {device}"
                 )
                 break
-
-            save_snapshot(epoch, train_losses, val_losses)
 
     return model
 
@@ -527,7 +528,7 @@ def main(args):
     )
 
     if args.only_prefix:
-        model = ClipCaptionPrefix(
+        model = TsCaptionPrefix(
             args.prefix_length,
             ts_embedding_length=config.ts_embedding_length,
             ts_embedding_dim=config.ts_embedding_dim,
@@ -535,8 +536,8 @@ def main(args):
         )
         print("Train only prefix")
     else:
-        model = ClipCaptionModel(
-            args.prefix_length,
+        model = TsCaptionModel(
+            config.prefix_length,
             ts_embedding_length=config.ts_embedding_length,
             ts_embedding_dim=config.ts_embedding_dim,
             num_layers=config.mapper_num_layers,

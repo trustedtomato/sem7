@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as nnf
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from train_mapping import ClipCaptionModel, ClipCaptionPrefix, PTBXLEncodedDataset
+from train_mapping import TsCaptionModel, TsCaptionPrefix, PTBXLEncodedDataset
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from TSCapMetrics import TSCapMetrics
 from typing_extensions import override
@@ -84,7 +84,7 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2-medium")
     snapshot_path = args.snapshot_path
-    model = ClipCaptionModel(
+    model = TsCaptionModel(
         config.prefix_length,
         ts_embedding_length=config.ts_embedding_length,
         ts_embedding_dim=config.ts_embedding_dim,
