@@ -12,9 +12,9 @@
         "ts_embedding_dim": 1024    
     },
     {
-        "model_name": "ts2vec_hd64_d20_ed512",
+        "model_name": "ts2vec_hd64_d15_ed512",
         "tsencoder_hidden_dim": 64,
-        "tsencoder_depth": 20,
+        "tsencoder_depth": 15,
         "ts_embedding_dim": 512    
     },
     {
@@ -24,9 +24,9 @@
         "ts_embedding_dim": 512    
     },
     {
-        "model_name": "ts2vec_hd128_d20_ed1024",
+        "model_name": "ts2vec_hd128_d15_ed1024",
         "tsencoder_hidden_dim": 128,
-        "tsencoder_depth": 20,
+        "tsencoder_depth": 15,
         "ts_embedding_dim": 1024    
     }
 ]

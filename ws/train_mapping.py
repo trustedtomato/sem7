@@ -5,9 +5,8 @@ from typing import Optional, Tuple
 
 import config
 import torch
-from torch.distributed import all_reduce, destroy_process_group, init_process_group
 import torch.nn as nn
-from torch.distributed import destroy_process_group, init_process_group
+from torch.distributed import all_reduce, destroy_process_group, init_process_group
 from torch.nn import functional as nnf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.adamw import AdamW
@@ -528,7 +527,7 @@ def main(args):
 
     if args.only_prefix:
         model = ClipCaptionPrefix(
-            args.prefix_length,
+            config.prefix_length,
             ts_embedding_length=config.ts_embedding_length,
             ts_embedding_dim=config.ts_embedding_dim,
             num_layers=config.mapper_num_layers,
@@ -536,7 +535,7 @@ def main(args):
         print("Train only prefix")
     else:
         model = ClipCaptionModel(
-            args.prefix_length,
+            config.prefix_length,
             ts_embedding_length=config.ts_embedding_length,
             ts_embedding_dim=config.ts_embedding_dim,
             num_layers=config.mapper_num_layers,
