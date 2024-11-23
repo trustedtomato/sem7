@@ -17,6 +17,7 @@ from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
 from utils import Logger, pkl_load, pkl_save
+from ail_parser import parse_intermixed_args
 
 
 def ddp_setup() -> int:
@@ -546,8 +547,7 @@ def main(args):
     train(dataset, val_dataset, model, device, args)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def get_parser(parser: argparse.ArgumentParser):
     parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
     parser.add_argument("--val_data", default="./data/ptb-xl/parsed_ptb_val.pkl")
     parser.add_argument("--out_dir", default="./data/tscap")
@@ -563,5 +563,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--normalize_prefix", dest="normalize_prefix", action="store_true"
     )
-    args = parser.parse_args()
+    return parser
+
+
+if __name__ == "__main__":
+    args = parse_intermixed_args()
     main(args)

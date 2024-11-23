@@ -8,7 +8,22 @@ cd "$(dirname "$0")"
 
 source .env
 source .env.local
-source init-connection.sh
+
+# Parse arguments
+cd $WS_PATH
+args=$(python ./ail_run_args.py $@)
+exit_code=$?
+if [[ $exit_code -eq 0 && $args == ail_opt_successful_arg_parse=1* ]]; then
+  source <(echo $args)
+else
+  echo "$args"
+  exit $exit_code
+fi
+cd -
+
+echo "$args"
+exit 0
+source ail_init_connection.sh
 
 # Check the existence of used environment variables
 TEMP="$HOME $WS_PATH $USER $HOST $REMOTE_PROJECT_PATH $REMOTE_COMMAND"
@@ -27,7 +42,7 @@ fi
 rsync -e "ssh -o 'ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p'" -urltvzP --perms --chmod=770 $OPT_GROUP $OPT_RSYNCIGNORE_LOCAL --exclude-from=.rsyncignore $WS_PATH/ $USER@$HOST:$REMOTE_PROJECT_PATH/$WS_PATH
 
 # Run command on remote from $REMOTE_PATH/$WS_PATH
-ssh -o "ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p" $USER@$HOST "cd $REMOTE_PROJECT_PATH/$WS_PATH && source ./.venv/bin/activate && python ts2vec_run_experiments.py"
+ssh -o "ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p" $USER@$HOST "cd $REMOTE_PROJECT_PATH/$WS_PATH && $REMOTE_COMMAND $@"
 
 # Sync from remote to local
 rsync -e "ssh -o 'ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p'" -urltvzP $OPT_RSYNCIGNORE_LOCAL --exclude-from=.rsyncignore $USER@$HOST:$REMOTE_PROJECT_PATH/$WS_PATH/ $WS_PATH

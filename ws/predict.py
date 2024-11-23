@@ -2,15 +2,16 @@ import argparse
 import os
 
 import config
-import torch
-import torch.nn.functional as nnf
-from torch.utils.data import DataLoader
 from tqdm import tqdm
+import torch.nn.functional as nnf
+import torch
+from torch.utils.data import DataLoader
 from train_mapping import TsCaptionModel, TsCaptionPrefix, PTBXLEncodedDataset
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from TSCapMetrics import TSCapMetrics
 from typing_extensions import override
 from utils import pkl_load, pkl_save
+from ail_parser import parse_intermixed_args
 
 T = torch.Tensor
 
@@ -135,8 +136,7 @@ def main(args):
         )
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def get_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--snapshot_path",
         required=True,
@@ -148,5 +148,9 @@ if __name__ == "__main__":
         dest="metrics",
         action="store_true",
     )
-    args = parser.parse_args()
+    return parser
+
+
+if __name__ == "__main__":
+    args = parse_intermixed_args()
     main(args)
