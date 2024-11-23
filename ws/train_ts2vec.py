@@ -75,12 +75,15 @@ def main(args):
         settled=args.settled,
         model_name=args.model_name,
         n_epochs=args.epochs,
-        n_iters=args.iters,
         verbose=True,
     )
     # #model.save(f"{output_dir}/{args.model_name}.pkl")
 
     t = time.time() - t
+    snapshot_path = f"data/ts2vec/{args.model_name}_snapshot.pt"
+    snapshot = torch.load(snapshot_path, weights_only=True)
+    snapshot["training_time"] = t
+    torch.save(snapshot, snapshot_path)
     print(f"\nTraining time: {datetime.timedelta(seconds=t)}\n")
 
     print("Finished.")
@@ -109,9 +112,6 @@ if __name__ == "__main__":
         type=int,
         default=3000,
         help="For sequence with a length greater than <max_train_length>, it would be cropped into some sequences, each of which has a length less than <max_train_length> (defaults to 3000)",
-    )
-    parser.add_argument(
-        "--iters", type=int, default=None, help="The number of iterations"
     )
     parser.add_argument(
         "--epochs", type=int, default=None, help="The number of maximum epochs"
