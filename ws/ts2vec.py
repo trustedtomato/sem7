@@ -55,12 +55,16 @@ class TS2Vec:
         self.batch_size = batch_size
         self.max_train_length = max_train_length
         self.temporal_unit = temporal_unit
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+        self.depth = depth
 
         self._net = TSEncoder(
-            input_dims=input_dim,
-            output_dims=output_dim,
-            hidden_dims=hidden_dim,
-            depth=depth,
+            input_dims=self.input_dim,
+            output_dims=self.output_dim,
+            hidden_dims=self.hidden_dim,
+            depth=self.depth,
         ).to(self.device)
         self.net = torch.optim.swa_utils.AveragedModel(self._net)
         self.net.update_parameters(self._net)
@@ -69,9 +73,8 @@ class TS2Vec:
         self.after_epoch_callback = after_epoch_callback
 
         self.n_epochs = 0
-        self.n_iters = 0
 
-    def _train_or_val(self, data_loader, optimizer, n_iters, mode):
+    def _train_or_val(self, data_loader, optimizer, mode):
         if mode == "train":
             self._net.train()
             self.net.train()
@@ -83,13 +86,8 @@ class TS2Vec:
 
         cum_loss = 0
         n_epoch_iters = 0
-        interrupted = False
 
         for batch in data_loader:
-            if n_iters is not None and self.n_iters >= n_iters:
-                interrupted = True
-                break
-
             x = batch[0]
             if self.max_train_length is not None and x.size(1) > self.max_train_length:
                 window_offset = np.random.randint(x.size(1) - self.max_train_length + 1)
@@ -130,12 +128,10 @@ class TS2Vec:
             cum_loss += loss.item()
             n_epoch_iters += 1
 
-            self.n_iters += 1
-
             if self.after_iter_callback is not None:
                 self.after_iter_callback(self, loss.item())
 
-        return (cum_loss / n_epoch_iters if n_epoch_iters > 0 else 1000, interrupted)
+        return cum_loss / n_epoch_iters
 
     def fit(
         self,
@@ -144,7 +140,6 @@ class TS2Vec:
         settled: int,
         model_name: str | None = None,
         n_epochs: int | None = None,
-        n_iters: int | None = None,
         verbose: bool = False,
     ):
         """Training the TS2Vec model.
@@ -159,11 +154,6 @@ class TS2Vec:
             loss_log: a list containing the training losses on each epoch.
         """
         assert train_data.ndim == 3
-
-        if n_iters is None and n_epochs is None:
-            n_iters = (
-                200 if train_data.size <= 100000 else 600
-            )  # default param for n_iters
 
         if self.max_train_length is not None:
             sections = train_data.shape[1] // self.max_train_length
@@ -201,9 +191,11 @@ class TS2Vec:
             self.n_epochs = snapshot["current_epoch"] + 1
             train_losses = snapshot["train_losses"]
             val_losses = snapshot["val_losses"]
-            best_state = snapshot["best_state"]
+            best_averaged_state = snapshot["best_averaged_state"]
+            best_encoder_state = snapshot["best_encoder_state"]
         else:
-            best_state = self.net.state_dict()
+            best_averaged_state = self.net.state_dict()
+            best_encoder_state = self._net.state_dict()
             self.n_epochs = 0
             train_losses: list[float] = []
             val_losses: list[float] = []
@@ -213,19 +205,27 @@ class TS2Vec:
         ):
             current_train_loss = train_losses[-1]
             current_val_loss = val_losses[-1]
-            current_state = self.net.state_dict()
+            current_averaged_state = self.net.state_dict()
+            current_encoder_state = self._net.state_dict()
             if current_train_loss <= min(train_losses) and current_val_loss <= min(
                 val_losses
             ):
-                nonlocal best_state
-                best_state = current_state
+                nonlocal best_averaged_state
+                nonlocal best_encoder_state
+                best_averaged_state = current_averaged_state
+                best_encoder_state = current_encoder_state
 
             snapshot = {
-                "best_state": best_state,
-                "state": current_state,
+                "best_averaged_state": best_averaged_state,
+                "averaged_state": current_averaged_state,
+                "best_encoder_state": best_encoder_state,
+                "encoder_state": current_encoder_state,
                 "current_epoch": epoch,
                 "train_losses": train_losses,
                 "val_losses": val_losses,
+                "tsencoder_hidden_dim": self.hidden_dim,
+                "tsencoder_depth": self.depth,
+                "ts_embedding_dim": self.output_dim,
             }
             torch.save(snapshot, snapshot_path)
 
@@ -235,12 +235,10 @@ class TS2Vec:
             if n_epochs is not None and self.n_epochs >= n_epochs:
                 break
 
-            train_average_loss, interrupted = self._train_or_val(
-                train_loader, optimizer, n_iters, mode="train"
+            train_average_loss = self._train_or_val(
+                train_loader, optimizer, mode="train"
             )
-            val_average_loss, _ = self._train_or_val(
-                val_loader, optimizer, None, mode="val"
-            )
+            val_average_loss = self._train_or_val(val_loader, optimizer, mode="val")
             train_losses.append(train_average_loss)
             val_losses.append(val_average_loss)
 
@@ -252,8 +250,6 @@ class TS2Vec:
                     break
 
             save_snapshot(self.n_epochs, train_losses, val_losses)
-            if interrupted:
-                break
 
             if verbose:
                 print(
