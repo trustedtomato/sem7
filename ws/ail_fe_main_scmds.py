@@ -7,14 +7,16 @@ class SCmd:
         self,
         program: Literal["srun", "sbatch"],
         opts: list[str],
+        python_module: str | None = None,
         python_args: list[str | int] = [],
     ):
         self.program = program
         self.opts = opts
+        self.python_module = python_module
         self.python_args = python_args
 
 
-def get_parser(parser: argparse.ArgumentParser):
+def modify_parser(parser: argparse._ArgumentGroup):
     parser.add_argument(
         "--gpu",
         "-g",
@@ -22,7 +24,6 @@ def get_parser(parser: argparse.ArgumentParser):
         required=True,
         help="FE: The number of GPUs to request in Slurm.",
     )
-    return parser
 
 
 def get_scmds(args: argparse.Namespace) -> list[SCmd]:

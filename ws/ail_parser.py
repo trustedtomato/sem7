@@ -7,6 +7,11 @@ from typing import Any
 
 import pkg_resources
 
+from ail_fe_main_scmds import SCmd
+
+
+Parser = argparse.ArgumentParser | argparse._ArgumentGroup
+
 
 class DummyModule(ModuleType):
     def __getattr__(self, key):
@@ -61,38 +66,38 @@ def parse_intermixed_args(uninstalled_requirements=False) -> argparse.Namespace:
         prog="ail_run.sh",
         description="Run commands on the AI-Lab frontend.",
     )
-    parser.add_argument(
+
+    local_options = parser.add_argument_group("Options for local")
+    local_options.add_argument(
         "--no_sync",
         "-N",
         action="store_true",
-        help="LOCAL: Do not sync the codebase before and after running the job.",
+        help="Do not sync the codebase before and after running the job.",
     )
-    parser.add_argument(
+
+    fe_options = parser.add_argument_group("Options for the frontend")
+    fe_options.add_argument(
         "--keep_jobs",
         "-k",
         action="store_true",
-        help="FE: Do not cancel previous jobs before running the new job.",
+        help="Do not cancel previous jobs before running the new job.",
     )
-    parser.add_argument(
+    fe_options.add_argument(
         "--scmds_from",
         "-s",
         type=str,
         default="ail_fe_main_scmds",
-        help="FE: The Python file to import SCmds from.",
+        help="The Python file to import SCmds from.",
     )
-    parser.add_argument(
+
+    slurm_options = parser.add_argument_group("Options for SLURM")
+    slurm_options.add_argument(
         "--no_install",
         "-n",
         action="store_true",
-        help="SLURM: Do not install packages from requirements.txt before running the Python command.",
+        help="Do not install packages from requirements.txt before running the Python command.",
     )
-    parser.add_argument(
-        "-f",
-        "--file",
-        type=str,
-        required=True,
-        help="SLURM: The Python file to run in the Slurm job with torchrun.",
-    )
+
     (args, rest) = parser.parse_known_intermixed_args()
 
     with (
@@ -113,29 +118,43 @@ def parse_intermixed_args(uninstalled_requirements=False) -> argparse.Namespace:
             raise AttributeError(
                 f"Module {args.scmds_from} does not have a get_scmds function."
             )
-        if not hasattr(scmds_module, "get_parser"):
+        if not hasattr(scmds_module, "modify_parser"):
             raise AttributeError(
-                f"Module {args.scmds_from} does not have a get_parser function."
+                f"Module {args.scmds_from} does not have a modify_parser function."
             )
-        parser = scmds_module.get_parser(parser)
+        parser = scmds_module.modify_parser(fe_options)
+        scmds: list[SCmd] = scmds_module.get_scmds(args)
 
-        try:
-            py_slurm_module = __import__(args.file)
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError(
-                f"Incorrect -f: Module {args.file} does not exist."
-            )
-        if not hasattr(py_slurm_module, "get_parser"):
-            raise AttributeError(
-                f"Module {args.file} does not have a get_parser function."
-            )
-        parser = py_slurm_module.get_parser(parser)
+        parser.add_argument(
+            "-f",
+            "--file",
+            type=str,
+            required=any(scmd.python_module is None for scmd in scmds),
+            help="SLURM: The Python file to run in the Slurm job with torchrun.",
+        )
+        (args, rest) = parser.parse_known_intermixed_args()
 
-    parser.add_argument(
-        "--help",
-        "-h",
-        action="help",
-        help="Show this help message and exit.",
-    )
+        for scmd in scmds:
+            py_slurm_module_name = scmd.python_module or args.file
+            try:
+                py_slurm_module = __import__(py_slurm_module_name)
+            except ModuleNotFoundError:
+                raise ModuleNotFoundError(
+                    f"Incorrect -f: Module {py_slurm_module_name} does not exist."
+                )
+            if not hasattr(py_slurm_module, "modify_parser"):
+                raise AttributeError(
+                    f"Module {py_slurm_module_name} does not have a modify_parser function."
+                )
+            final_parser: argparse.ArgumentParser = py_slurm_module.modify_parser(
+                parser
+            )
+            final_parser.add_argument(
+                "--help",
+                "-h",
+                action="help",
+                help="Show this help message and exit.",
+            )
+            final_parser.parse_intermixed_args()
 
     return parser.parse_intermixed_args()

@@ -136,7 +136,7 @@ def main(args):
         )
 
 
-def get_parser(parser: argparse.ArgumentParser):
+def modify_parser(parser: argparse._ArgumentGroup):
     parser.add_argument(
         "--snapshot_path",
         required=True,
@@ -148,7 +148,6 @@ def get_parser(parser: argparse.ArgumentParser):
         dest="metrics",
         action="store_true",
     )
-    return parser
 
 
 if __name__ == "__main__":

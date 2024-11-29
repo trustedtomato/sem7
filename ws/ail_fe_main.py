@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 
+from torch.nn.modules import module
+
 from ail_fe_main_scmds import SCmd
 from ail_parser import parse_intermixed_args
 
@@ -32,14 +34,19 @@ def main(args: argparse.Namespace):
     # print(f"Idle nodes: {free_nodes}")
 
     scmds: list[SCmd] = __import__(args.scmds_from).get_scmds(args)
-    python_file_spec = find_spec(args.file)
-    if python_file_spec is None:
-        raise ImportError(f"Module {args.f} not found")
-    python_file = python_file_spec.origin
-    if python_file is None:
-        raise ImportError(f"Module {args.f} not found (origin)")
 
     for scmd in scmds:
+        module_name = scmd.python_module or args.file
+        module_spec = find_spec(module_name)
+        if module_spec is None:
+            raise ImportError(f"Module {args.f} not found")
+        module_path = module_spec.origin
+        if module_path is None:
+            raise ImportError(f"Module {args.f} not found (origin)")
+
+        scmd.python_args
+
+        python_args = [module_path] + sys.argv[1:]
         command = [
             scmd.program,
             *scmd.opts,
@@ -51,7 +58,7 @@ def main(args: argparse.Namespace):
             "/ceph/container/pytorch/pytorch_24.09.sif",
             "bash",
             "ail_slurm_main.sh",
-            python_file,
+            module_path,
             *sys.argv[1:],
         ]
         print("Running command", command)

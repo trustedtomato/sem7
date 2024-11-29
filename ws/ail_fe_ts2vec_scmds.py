@@ -5,8 +5,8 @@ import subprocess
 from ws.ail_fe_main_scmds import SCmd
 
 
-def get_parser(parser: argparse.ArgumentParser):
-    return parser
+def modify_parser(parser: argparse._ArgumentGroup):
+    pass
 
 
 def get_scmd(experiment):
@@ -18,6 +18,7 @@ def get_scmd(experiment):
         program="sbatch",
         opts=["-J", name, f"--gres=gpu:1", "--mem-per-gpu=30G"],
         python_args=[
+            "ail_fe_ts2vec.py",
             "--model_name",
             name,
             "--tsencoder_depth",

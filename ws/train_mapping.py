@@ -1,12 +1,11 @@
 import argparse
-import os
 from math import isnan
+import os
 from typing import Optional, Tuple
 
-import config
 import torch
-import torch.nn as nn
 from torch.distributed import all_reduce, destroy_process_group, init_process_group
+import torch.nn as nn
 from torch.nn import functional as nnf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.adamw import AdamW
@@ -16,8 +15,10 @@ from tqdm import tqdm
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
-from utils import Logger, pkl_load, pkl_save
-from ail_parser import parse_intermixed_args
+
+from ail_parser import Parser, parse_intermixed_args
+import config
+from utils import pkl_load
 
 
 def ddp_setup() -> int:
@@ -547,7 +548,7 @@ def main(args):
     train(dataset, val_dataset, model, device, args)
 
 
-def get_parser(parser: argparse.ArgumentParser):
+def modify_parser(parser: Parser):
     parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
     parser.add_argument("--val_data", default="./data/ptb-xl/parsed_ptb_val.pkl")
     parser.add_argument("--out_dir", default="./data/tscap")
@@ -563,7 +564,6 @@ def get_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--normalize_prefix", dest="normalize_prefix", action="store_true"
     )
-    return parser
 
 
 if __name__ == "__main__":
