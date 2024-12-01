@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 
@@ -8,8 +9,18 @@ if __name__ == "__main__":
     args = parse_intermixed_args(sys_args=sys.argv[2:], uninstalled_requirements=True)
 
     if not args.no_install:
+        subprocess.call([sys.executable, "-m", "ensurepip"])
         subprocess.call(
-            [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--no-cache-dir",
+                "-r",
+                "requirements.txt",
+            ],
+            env=(dict(os.environ) | {"TMPDIR": "./pip-cache"}),
         )
 
     import torch
