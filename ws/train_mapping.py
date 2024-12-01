@@ -16,7 +16,7 @@ from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
 
-from ail_parser import Parser, parse_intermixed_args
+from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
 import config
 from utils import pkl_load
 
@@ -567,5 +567,5 @@ def modify_parser(parser: Parser):
 
 
 if __name__ == "__main__":
-    args = parse_intermixed_args()
+    args = parse_intermixed_args_local(modify_parser)
     main(args)

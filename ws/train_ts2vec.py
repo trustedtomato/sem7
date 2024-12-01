@@ -10,7 +10,7 @@ import torch
 from parse_ptb import load_raw_data, preprocess
 from ts2vec import TS2Vec
 from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
-from ws.ail_parser import Parser
+from ail_parser import Parser, parse_intermixed_args_local
 
 
 def load_ptb_data(data_path="data/ptb-xl/"):
@@ -132,7 +132,5 @@ def modify_parser(parser: Parser):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    modify_parser(parser)
-    args = parser.parse_intermixed_args()
+    args = parse_intermixed_args_local(modify_parser)
     main(args)

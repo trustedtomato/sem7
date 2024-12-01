@@ -11,7 +11,7 @@ from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from TSCapMetrics import TSCapMetrics
 from typing_extensions import override
 from utils import pkl_load, pkl_save
-from ail_parser import parse_intermixed_args
+from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
 
 T = torch.Tensor
 
@@ -136,7 +136,7 @@ def main(args):
         )
 
 
-def modify_parser(parser: argparse._ArgumentGroup):
+def modify_parser(parser: Parser):
     parser.add_argument(
         "--snapshot_path",
         required=True,
@@ -151,5 +151,5 @@ def modify_parser(parser: argparse._ArgumentGroup):
 
 
 if __name__ == "__main__":
-    args = parse_intermixed_args()
+    args = parse_intermixed_args_local(modify_parser)
     main(args)

@@ -2,7 +2,7 @@ import argparse
 import json
 import subprocess
 
-from ws.ail_fe_main_scmds import SCmd
+from ail_fe_main_scmds import SCmd
 
 
 def modify_parser(parser: argparse._ArgumentGroup):

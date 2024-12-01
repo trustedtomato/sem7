@@ -27,7 +27,12 @@ def modify_parser(parser: argparse._ArgumentGroup):
 
 
 def get_scmds(args: argparse.Namespace) -> list[SCmd]:
-    return [SCmd(program="srun", opts=[f"--gres=gpu:{args.gpu}", "--mem-per-gpu=30G"])]
+    return [
+        SCmd(
+            program="srun",
+            opts=([f"--gres=gpu:{args.gpu}", "--mem-per-gpu=30G"]),
+        )
+    ]
 
 
 # run.sh --keep-jobs --scmds-from=main_run_scmds.py -g -n

@@ -14,19 +14,17 @@ cd $WS_PATH
 args=$(python ./ail_run_args.py $@)
 exit_code=$?
 if [[ $exit_code -eq 0 && $args == ail_opt_successful_arg_parse=1* ]]; then
-  source <(echo $args)
+  source <(echo "$args")
 else
   echo "$args"
   exit $exit_code
 fi
 cd -
 
-echo "$args"
-exit 0
 source ail_init_connection.sh
 
 # Check the existence of used environment variables
-TEMP="$HOME $WS_PATH $USER $HOST $REMOTE_PROJECT_PATH $REMOTE_COMMAND"
+TEMP="$HOME $WS_PATH $USER $HOST $REMOTE_PROJECT_PATH"
 
 # Make remote target directory
 ssh -o "ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p" $USER@$HOST mkdir -p $REMOTE_PROJECT_PATH/$WS_PATH
@@ -39,10 +37,18 @@ if [ -f .rsyncignore_local ]; then
 fi
 
 # Sync from local to remote
-rsync -e "ssh -o 'ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p'" -urltvzP --perms --chmod=770 $OPT_GROUP $OPT_RSYNCIGNORE_LOCAL --exclude-from=.rsyncignore $WS_PATH/ $USER@$HOST:$REMOTE_PROJECT_PATH/$WS_PATH
+if [ $ail_opt_no_sync = 1 ]; then
+  echo "Skipping sync from local to remote"
+else
+  rsync -e "ssh -o 'ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p'" -urltvzP --perms --chmod=770 $OPT_GROUP $OPT_RSYNCIGNORE_LOCAL --exclude-from=.rsyncignore $WS_PATH/ $USER@$HOST:$REMOTE_PROJECT_PATH/$WS_PATH
+fi
 
 # Run command on remote from $REMOTE_PATH/$WS_PATH
-ssh -o "ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p" $USER@$HOST "cd $REMOTE_PROJECT_PATH/$WS_PATH && $REMOTE_COMMAND $@"
+ssh -o "ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p" $USER@$HOST "cd $REMOTE_PROJECT_PATH/$WS_PATH && python3 -u ail_fe_main.py $@"
 
 # Sync from remote to local
-rsync -e "ssh -o 'ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p'" -urltvzP $OPT_RSYNCIGNORE_LOCAL --exclude-from=.rsyncignore $USER@$HOST:$REMOTE_PROJECT_PATH/$WS_PATH/ $WS_PATH
+if [ $ail_opt_no_sync = 1 ]; then
+  echo "Skipping sync from remote to local"
+else
+  rsync -e "ssh -o 'ControlPath=$HOME/.ssh/ctl/%L-%r@%h:%p'" -urltvzP $OPT_RSYNCIGNORE_LOCAL --exclude-from=.rsyncignore $USER@$HOST:$REMOTE_PROJECT_PATH/$WS_PATH/ $WS_PATH
+fi

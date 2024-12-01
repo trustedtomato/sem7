@@ -1,2 +1,2 @@
 source .venv/bin/activate
-python3 slurm_main.py "$@"
+python3 -u ail_slurm_main.py "$@"
