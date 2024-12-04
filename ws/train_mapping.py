@@ -288,11 +288,20 @@ class ClipCaptionModel(nn.Module):
         ts_embedding_dim: int,
         num_layers: int,
         gpt2_type: str = "gpt2-medium",
+        prompt: str = "",
     ):
         super().__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained(gpt2_type)
+        self.tokenizer = GPT2Tokenizer.from_pretrained(gpt2_type)
+        self.prompt = (
+            None
+            if len(prompt) == 0
+            else torch.tensor(self.tokenizer.encode(prompt), dtype=torch.int64)
+        )
+        self.prompt_length = 0 if prompt is None else prompt.shape[0]
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
+
         self.clip_project = TransformerMapper(
             ts_embedding_dim=ts_embedding_dim,
             prefix_dim=self.gpt_embedding_size,
@@ -313,16 +322,20 @@ class ClipCaptionModel(nn.Module):
         mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
     ):
+        embedding_prompt = self.gpt.transformer.wte(self.prompt)
         embedding_text = self.gpt.transformer.wte(tokens)
         prefix_projections = self.clip_project(prefix).view(
             -1, self.prefix_length, self.gpt_embedding_size
         )
-        embedding_cat = torch.cat((prefix_projections, embedding_text), dim=1)
+        embedding_cat = torch.cat(
+            (embedding_prompt, prefix_projections, embedding_text), dim=1
+        )
         if labels is not None:
             dummy_token = self.get_dummy_token(tokens.shape[0], tokens.device)
             labels = torch.cat((dummy_token, tokens), dim=1)
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
-        return out
+        logits = out.logits[:, self.prefix_length + self.prompt_length - 1 : -1]
+        return logits
 
 
 class ClipCaptionPrefix(ClipCaptionModel):
@@ -432,8 +445,7 @@ def train(
                 mask.to(device),
                 prefix.to(device, dtype=torch.float32),
             )
-            outputs = model(tokens, prefix, mask)
-            logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
+            logits = model(tokens, prefix, mask)
             loss = nnf.cross_entropy(
                 logits.reshape(-1, logits.shape[-1]),
                 tokens.flatten(),
@@ -531,6 +543,7 @@ def main(args):
             ts_embedding_length=config.ts_embedding_length,
             ts_embedding_dim=config.ts_embedding_dim,
             num_layers=config.mapper_num_layers,
+            prompt=args.prompt,
         )
         print("Train only prefix")
     else:
@@ -539,6 +552,7 @@ def main(args):
             ts_embedding_length=config.ts_embedding_length,
             ts_embedding_dim=config.ts_embedding_dim,
             num_layers=config.mapper_num_layers,
+            prompt=args.prompt,
         )
         print("Train both prefix and GPT")
 
@@ -551,6 +565,7 @@ if __name__ == "__main__":
     parser.add_argument("--val_data", default="./data/ptb-xl/parsed_ptb_val.pkl")
     parser.add_argument("--out_dir", default="./data/tscap")
     parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
+    parser.add_argument("--prompt", default="", help="prompt for tscap")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument(
         "--settled",
