@@ -1,0 +1,61 @@
+[
+    {
+        "ts_embedding_length": 10,
+        "mapper_num_layers": 8,
+        "prefix_length": 10
+    },
+
+    {
+        "ts_embedding_length": 13,
+        "mapper_num_layers": 8,
+        "prefix_length": 10
+    },
+    {
+        "ts_embedding_length": 16,
+        "mapper_num_layers": 8,
+        "prefix_length": 10
+    },
+    {
+        "ts_embedding_length": 20,
+        "mapper_num_layers": 8,
+        "prefix_length": 10
+    },
+
+    {
+        "ts_embedding_length": 10,
+        "mapper_num_layers": 10,
+        "prefix_length": 10
+    },
+    {
+        "ts_embedding_length": 10,
+        "mapper_num_layers": 12,
+        "prefix_length": 10
+    },
+    {
+        "ts_embedding_length": 10,
+        "mapper_num_layers": 14,
+        "prefix_length": 10
+    },
+
+    {
+        "ts_embedding_length": 10,
+        "mapper_num_layers": 8,
+        "prefix_length": 13
+    },
+    {
+        "ts_embedding_length": 10,
+        "mapper_num_layers": 8,
+        "prefix_length": 16
+    },
+    {
+        "ts_embedding_length": 10,
+        "mapper_num_layers": 8,
+        "prefix_length": 20
+    },
+
+    {
+        "ts_embedding_length": 20,
+        "mapper_num_layers": 14,
+        "prefix_length": 20
+    }
+]
