@@ -43,11 +43,6 @@ def main(args: argparse.Namespace):
         if module_path is None:
             raise ImportError(f"Module {args.f} not found (origin)")
 
-        python_args = (
-            [module_path] + sys.argv[1:]
-            if len(scmd.python_args) == 0
-            else scmd.python_args
-        )
         command = [
             scmd.program,
             *scmd.opts,
@@ -59,7 +54,9 @@ def main(args: argparse.Namespace):
             "/ceph/container/pytorch/pytorch_24.11.sif",
             "bash",
             "ail_slurm_main.sh",
-            *python_args,
+            module_path,
+            *sys.argv[1:],
+            *scmd.python_args,
         ]
         print("Running command", command)
         subprocess.run(command)

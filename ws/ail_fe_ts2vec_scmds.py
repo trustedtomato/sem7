@@ -1,6 +1,5 @@
 import argparse
 import json
-import subprocess
 
 from ail_fe_main_scmds import SCmd
 
@@ -17,8 +16,8 @@ def get_scmd(experiment):
     return SCmd(
         program="sbatch",
         opts=["-J", name, f"--gres=gpu:1", "--mem-per-gpu=30G"],
+        python_module="train_ts2vec",
         python_args=[
-            "ail_fe_ts2vec.py",
             "--model_name",
             name,
             "--tsencoder_depth",

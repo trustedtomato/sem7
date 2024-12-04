@@ -13,7 +13,7 @@ class SCmd:
         self.program = program
         self.opts = opts
         self.python_module = python_module
-        self.python_args = python_args
+        self.python_args = [str(python_args) for python_args in python_args]
 
 
 def modify_parser(parser: argparse._ArgumentGroup):
@@ -22,7 +22,7 @@ def modify_parser(parser: argparse._ArgumentGroup):
         "-g",
         type=int,
         required=True,
-        help="FE: The number of GPUs to request in Slurm.",
+        help="The number of GPUs to request in Slurm.",
     )
 
 

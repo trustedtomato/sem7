@@ -20,6 +20,8 @@ if __name__ == "__main__":
                 "-r",
                 "requirements.txt",
             ],
+            # set the TMPDIR environment variable to a directory in the current
+            # directory to avoid storage limit issues on the /tmp directory
             env=(dict(os.environ) | {"TMPDIR": "./pip-cache"}),
         )
 
@@ -29,7 +31,7 @@ if __name__ == "__main__":
     command = (
         ["torchrun", "--nproc_per_node=" + str(gpu_count)] + sys.argv[1:]
         if args.torchrun
-        else ["python3"] + sys.argv[1:]
+        else ["python3", "-u"] + sys.argv[1:]
     )
     print("Running command: ", command)
     subprocess.run(command)

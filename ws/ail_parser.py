@@ -3,6 +3,7 @@ import builtins
 from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 import logging
 from os import devnull
+import os
 import sys
 import traceback
 from types import ModuleType
@@ -71,23 +72,25 @@ def suppress_stdout_stderr():
 def parse_intermixed_args_local(
     modify_parser: Callable[[argparse.ArgumentParser | argparse._ArgumentGroup], None]
 ) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(exit_on_error=False)
+    parser = argparse.ArgumentParser()
     modify_parser(parser)
 
-    # first try with local-only arguments
-    try:
-        return parser.parse_intermixed_args()
-    except (Exception, SystemExit) as e:
-        if "unrecognized arguments" not in str(e):
-            print("Here2")
-            raise e
-    print("Here3")
+    with suppress_stdout_stderr():
+        # first try with local-only arguments
+        try:
+            return parser.parse_intermixed_args()
+        # Normally, we would use exit_on_error=False, but that doesn't work in
+        # all cases in Python 3.10, which is what we have on the AI-Lab
+        # frontend. See the issue here:
+        # https://github.com/python/cpython/issues/103498
+        except SystemExit:
+            pass
 
-    # now try with all frontend argument
-    try:
-        return parse_intermixed_args(exit_on_error=False)
-    except (Exception, SystemExit):
-        pass
+        # now try with all frontend argument
+        try:
+            return parse_intermixed_args()
+        except SystemExit:
+            pass
 
     # if all of the above, raise the original error - we don't expect the call
     # to fail on the frontend because we have already tested it when running
@@ -98,8 +101,7 @@ def parse_intermixed_args_local(
 # orchestrate all parsers
 def parse_intermixed_args(
     uninstalled_requirements=False,
-    exit_on_error=True,
-    sys_args: Sequence[str] | None = None,
+    sys_args: list[str] = sys.argv[1:],
 ) -> argparse.Namespace:
     requirements_path = "./requirements.txt"
     with open(requirements_path, "r") as f:
@@ -109,10 +111,9 @@ def parse_intermixed_args(
         add_help=False,
         prog="ail_run.sh",
         description="Run commands on the AI-Lab frontend.",
-        exit_on_error=exit_on_error,
     )
 
-    local_options = parser.add_argument_group("Options for local")
+    local_options = parser.add_argument_group("options for local")
     local_options.add_argument(
         "--no_sync",
         "-N",
@@ -120,7 +121,7 @@ def parse_intermixed_args(
         help="Do not sync the codebase before and after running the job.",
     )
 
-    fe_options = parser.add_argument_group("Options for the frontend")
+    fe_options = parser.add_argument_group("options for the frontend")
     fe_options.add_argument(
         "--keep_jobs",
         "-k",
@@ -132,10 +133,10 @@ def parse_intermixed_args(
         "-s",
         type=str,
         default="ail_fe_main_scmds",
-        help="The Python file to import SCmds from.",
+        help="The Python file to import Slurm commands from.",
     )
 
-    slurm_options = parser.add_argument_group("Options for SLURM")
+    slurm_options = parser.add_argument_group("options for Slurm")
     slurm_options.add_argument(
         "--no_install",
         "-n",
@@ -179,12 +180,12 @@ def parse_intermixed_args(
 
         scmds: list[SCmd] = scmds_module.get_scmds(args)
 
-        parser.add_argument(
+        slurm_options.add_argument(
             "-f",
             "--file",
             type=str,
             required=any(scmd.python_module is None for scmd in scmds),
-            help="SLURM: The Python file to run in the Slurm job with torchrun.",
+            help="The Python file to run in the Slurm job with torchrun.",
         )
         (args, rest) = parser.parse_known_intermixed_args(sys_args)
 
@@ -201,13 +202,16 @@ def parse_intermixed_args(
                     f"Module {py_slurm_module_name} does not have a modify_parser function."
                 )
             if i == 0:
-                py_slurm_module.modify_parser(parser)
+                target_options = parser.add_argument_group(
+                    "options for the target script"
+                )
+                py_slurm_module.modify_parser(target_options)
                 parser.add_argument(
                     "--help",
                     "-h",
                     action="help",
                     help="Show this help message and exit.",
                 )
-                parser.parse_intermixed_args(sys_args)
+            parser.parse_intermixed_args(sys_args + scmd.python_args)
 
-    return parser.parse_intermixed_args(sys_args)
+    return parser.parse_intermixed_args(sys_args + scmds[0].python_args)
