@@ -1,11 +1,13 @@
 import argparse
-from math import isnan
 import os
+from math import isnan
 from typing import Optional, Tuple
 
+import config
 import torch
-from torch.distributed import all_reduce, destroy_process_group, init_process_group
 import torch.nn as nn
+from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
+from torch.distributed import all_reduce, destroy_process_group, init_process_group
 from torch.nn import functional as nnf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.adamw import AdamW
@@ -15,9 +17,6 @@ from tqdm import tqdm
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
-
-from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
-import config
 from utils import pkl_load
 
 
@@ -294,7 +293,9 @@ class TsCaptionModel(nn.Module):
         super().__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained(gpt2_type)
+        self.tokenizer = GPT2Tokenizer.from_pretrained(gpt2_type)
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
+
         self.clip_project = TransformerMapper(
             ts_embedding_dim=ts_embedding_dim,
             prefix_dim=self.gpt_embedding_size,
@@ -324,7 +325,8 @@ class TsCaptionModel(nn.Module):
             dummy_token = self.get_dummy_token(tokens.shape[0], tokens.device)
             labels = torch.cat((dummy_token, tokens), dim=1)
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
-        return out
+        logits = out.logits[:, self.prefix_length - 1 : -1]
+        return logits
 
 
 class TsCaptionPrefix(TsCaptionModel):
@@ -434,8 +436,7 @@ def train(
                 mask.to(device),
                 prefix.to(device, dtype=torch.float32),
             )
-            outputs = model(tokens, prefix, mask)
-            logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
+            logits = model(tokens, prefix, mask)
             loss = nnf.cross_entropy(
                 logits.reshape(-1, logits.shape[-1]),
                 tokens.flatten(),
@@ -518,30 +519,30 @@ def main(args):
 
     dataset = PTBXLEncodedDataset(
         data_path=args.data,
-        prefix_length=config.prefix_length,
+        prefix_length=args.prefix_length,
         normalize_prefix=args.normalize_prefix,
     )
 
     val_dataset = PTBXLEncodedDataset(
         data_path=args.val_data,
-        prefix_length=config.prefix_length,
+        prefix_length=args.prefix_length,
         normalize_prefix=args.normalize_prefix,
     )
 
     if args.only_prefix:
         model = TsCaptionPrefix(
-            config.prefix_length,
-            ts_embedding_length=config.ts_embedding_length,
-            ts_embedding_dim=config.ts_embedding_dim,
-            num_layers=config.mapper_num_layers,
+            args.prefix_length,
+            ts_embedding_length=args.ts_embedding_length,
+            ts_embedding_dim=args.ts_embedding_dim,
+            num_layers=args.mapper_num_layers,
         )
         print("Train only prefix")
     else:
         model = TsCaptionModel(
-            config.prefix_length,
-            ts_embedding_length=config.ts_embedding_length,
-            ts_embedding_dim=config.ts_embedding_dim,
-            num_layers=config.mapper_num_layers,
+            args.prefix_length,
+            ts_embedding_length=args.ts_embedding_length,
+            ts_embedding_dim=args.ts_embedding_dim,
+            num_layers=args.mapper_num_layers,
         )
         print("Train both prefix and GPT")
 
@@ -554,6 +555,13 @@ def modify_parser(parser: Parser):
     parser.add_argument("--out_dir", default="./data/tscap")
     parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument(
+        "--ts_embedding_length", type=int, default=config.ts_embedding_length
+    )
+    parser.add_argument(
+        "--mapper_num_layers", type=int, default=config.mapper_num_layers
+    )
+    parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
     parser.add_argument(
         "--settled",
         type=int,
