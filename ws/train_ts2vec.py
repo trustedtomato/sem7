@@ -10,6 +10,7 @@ import torch
 from parse_ptb import load_raw_data, preprocess
 from ts2vec import TS2Vec
 from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
+from ail_parser import Parser, parse_intermixed_args_local
 
 
 def load_ptb_data(data_path="data/ptb-xl/"):
@@ -78,8 +79,7 @@ def main(args):
     print("Finished.")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def modify_parser(parser: Parser):
     parser.add_argument(
         "--model_name",
         required=True,
@@ -129,6 +129,8 @@ if __name__ == "__main__":
         default=config.ts_embedding_dim,
         help="If not using config set the embedding dimension of the encoder",
     )
-    args = parser.parse_args()
 
+
+if __name__ == "__main__":
+    args = parse_intermixed_args_local(modify_parser)
     main(args)

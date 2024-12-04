@@ -2,15 +2,16 @@ import argparse
 import os
 
 import config
-import torch
-import torch.nn.functional as nnf
-from torch.utils.data import DataLoader
 from tqdm import tqdm
-from train_mapping import ClipCaptionModel, ClipCaptionPrefix, PTBXLEncodedDataset
+import torch.nn.functional as nnf
+import torch
+from torch.utils.data import DataLoader
+from train_mapping import TsCaptionModel, TsCaptionPrefix, PTBXLEncodedDataset
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from TSCapMetrics import TSCapMetrics
 from typing_extensions import override
 from utils import pkl_load, pkl_save
+from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
 
 T = torch.Tensor
 
@@ -84,7 +85,7 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2-medium")
     snapshot_path = args.snapshot_path
-    model = ClipCaptionModel(
+    model = TsCaptionModel(
         config.prefix_length,
         ts_embedding_length=config.ts_embedding_length,
         ts_embedding_dim=config.ts_embedding_dim,
@@ -135,8 +136,7 @@ def main(args):
         )
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def modify_parser(parser: Parser):
     parser.add_argument(
         "--snapshot_path",
         required=True,
@@ -148,5 +148,8 @@ if __name__ == "__main__":
         dest="metrics",
         action="store_true",
     )
-    args = parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_intermixed_args_local(modify_parser)
     main(args)
