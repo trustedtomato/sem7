@@ -1,11 +1,13 @@
 import argparse
-from math import isnan
 import os
+from math import isnan
 from typing import Optional, Tuple
 
+import config
 import torch
-from torch.distributed import all_reduce, destroy_process_group, init_process_group
 import torch.nn as nn
+from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
+from torch.distributed import all_reduce, destroy_process_group, init_process_group
 from torch.nn import functional as nnf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.adamw import AdamW
@@ -15,9 +17,6 @@ from tqdm import tqdm
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
-
-from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
-import config
 from utils import pkl_load
 
 
@@ -290,18 +289,11 @@ class TsCaptionModel(nn.Module):
         ts_embedding_dim: int,
         num_layers: int,
         gpt2_type: str = "gpt2-medium",
-        prompt: str = "",
     ):
         super().__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained(gpt2_type)
         self.tokenizer = GPT2Tokenizer.from_pretrained(gpt2_type)
-        self.prompt = (
-            None
-            if len(prompt) == 0
-            else torch.tensor(self.tokenizer.encode(prompt), dtype=torch.int64)
-        )
-        self.prompt_length = 0 if prompt is None else prompt.shape[0]
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
 
         self.clip_project = TransformerMapper(
@@ -324,19 +316,16 @@ class TsCaptionModel(nn.Module):
         mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
     ):
-        embedding_prompt = self.gpt.transformer.wte(self.prompt)
         embedding_text = self.gpt.transformer.wte(tokens)
         prefix_projections = self.clip_project(prefix).view(
             -1, self.prefix_length, self.gpt_embedding_size
         )
-        embedding_cat = torch.cat(
-            (embedding_prompt, prefix_projections, embedding_text), dim=1
-        )
+        embedding_cat = torch.cat((prefix_projections, embedding_text), dim=1)
         if labels is not None:
             dummy_token = self.get_dummy_token(tokens.shape[0], tokens.device)
             labels = torch.cat((dummy_token, tokens), dim=1)
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
-        logits = out.logits[:, self.prefix_length + self.prompt_length - 1 : -1]
+        logits = out.logits[:, self.prefix_length - 1 : -1]
         return logits
 
 
@@ -530,32 +519,30 @@ def main(args):
 
     dataset = PTBXLEncodedDataset(
         data_path=args.data,
-        prefix_length=config.prefix_length,
+        prefix_length=args.prefix_length,
         normalize_prefix=args.normalize_prefix,
     )
 
     val_dataset = PTBXLEncodedDataset(
         data_path=args.val_data,
-        prefix_length=config.prefix_length,
+        prefix_length=args.prefix_length,
         normalize_prefix=args.normalize_prefix,
     )
 
     if args.only_prefix:
         model = TsCaptionPrefix(
-            config.prefix_length,
-            ts_embedding_length=config.ts_embedding_length,
-            ts_embedding_dim=config.ts_embedding_dim,
-            num_layers=config.mapper_num_layers,
-            prompt=args.prompt,
+            args.prefix_length,
+            ts_embedding_length=args.ts_embedding_length,
+            ts_embedding_dim=args.ts_embedding_dim,
+            num_layers=args.mapper_num_layers,
         )
         print("Train only prefix")
     else:
         model = TsCaptionModel(
-            config.prefix_length,
-            ts_embedding_length=config.ts_embedding_length,
-            ts_embedding_dim=config.ts_embedding_dim,
-            num_layers=config.mapper_num_layers,
-            prompt=args.prompt,
+            args.prefix_length,
+            ts_embedding_length=args.ts_embedding_length,
+            ts_embedding_dim=args.ts_embedding_dim,
+            num_layers=args.mapper_num_layers,
         )
         print("Train both prefix and GPT")
 
@@ -567,8 +554,14 @@ def modify_parser(parser: Parser):
     parser.add_argument("--val_data", default="./data/ptb-xl/parsed_ptb_val.pkl")
     parser.add_argument("--out_dir", default="./data/tscap")
     parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
-    parser.add_argument("--prompt", default="", help="prompt for tscap")
     parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument(
+        "--ts_embedding_length", type=int, default=config.ts_embedding_length
+    )
+    parser.add_argument(
+        "--mapper_num_layers", type=int, default=config.mapper_num_layers
+    )
+    parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
     parser.add_argument(
         "--settled",
         type=int,
