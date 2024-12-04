@@ -1,16 +1,19 @@
+import math
+import os
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import TensorDataset, DataLoader
-import numpy as np
 from models import TSEncoder
 from models.losses import hierarchical_contrastive_loss
+from torch.utils.data import DataLoader, TensorDataset
 from utils import (
-    take_per_row,
-    split_with_nan,
+    Logger,
     centerize_vary_length_series,
+    split_with_nan,
+    take_per_row,
     torch_pad_nan,
 )
-import math
 
 
 class TS2Vec:
@@ -18,13 +21,13 @@ class TS2Vec:
 
     def __init__(
         self,
-        input_dims,
-        output_dims=320,
-        hidden_dims=64,
-        depth=10,
-        device="cuda",
+        input_dim,
+        output_dim,
+        hidden_dim,
+        depth,
+        device,
+        batch_size,
         lr=0.001,
-        batch_size=16,
         max_train_length=None,
         temporal_unit=0,
         after_iter_callback=None,
@@ -52,12 +55,16 @@ class TS2Vec:
         self.batch_size = batch_size
         self.max_train_length = max_train_length
         self.temporal_unit = temporal_unit
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+        self.depth = depth
 
         self._net = TSEncoder(
-            input_dims=input_dims,
-            output_dims=output_dims,
-            hidden_dims=hidden_dims,
-            depth=depth,
+            input_dims=self.input_dim,
+            output_dims=self.output_dim,
+            hidden_dims=self.hidden_dim,
+            depth=self.depth,
         ).to(self.device)
         self.net = torch.optim.swa_utils.AveragedModel(self._net)
         self.net.update_parameters(self._net)
@@ -66,9 +73,8 @@ class TS2Vec:
         self.after_epoch_callback = after_epoch_callback
 
         self.n_epochs = 0
-        self.n_iters = 0
 
-    def _train_or_val(self, data_loader, optimizer, n_iters, mode):
+    def _train_or_val(self, data_loader, optimizer, mode):
         if mode == "train":
             self._net.train()
             self.net.train()
@@ -80,13 +86,8 @@ class TS2Vec:
 
         cum_loss = 0
         n_epoch_iters = 0
-        interrupted = False
 
         for batch in data_loader:
-            if n_iters is not None and self.n_iters >= n_iters:
-                interrupted = True
-                break
-
             x = batch[0]
             if self.max_train_length is not None and x.size(1) > self.max_train_length:
                 window_offset = np.random.randint(x.size(1) - self.max_train_length + 1)
@@ -127,14 +128,20 @@ class TS2Vec:
             cum_loss += loss.item()
             n_epoch_iters += 1
 
-            self.n_iters += 1
-
             if self.after_iter_callback is not None:
                 self.after_iter_callback(self, loss.item())
 
-        return (cum_loss / n_epoch_iters, interrupted)
+        return cum_loss / n_epoch_iters
 
-    def fit(self, train_data, val_data, n_epochs=None, n_iters=None, verbose=False):
+    def fit(
+        self,
+        train_data: np.ndarray,
+        val_data: np.ndarray,
+        settled: int,
+        model_name: str | None = None,
+        n_epochs: int | None = None,
+        verbose: bool = False,
+    ):
         """Training the TS2Vec model.
 
         Args:
@@ -148,11 +155,6 @@ class TS2Vec:
         """
         assert train_data.ndim == 3
 
-        if n_iters is None and n_epochs is None:
-            n_iters = (
-                200 if train_data.size <= 100000 else 600
-            )  # default param for n_iters
-
         if self.max_train_length is not None:
             sections = train_data.shape[1] // self.max_train_length
             if sections >= 2:
@@ -165,7 +167,7 @@ class TS2Vec:
             train_data = centerize_vary_length_series(train_data)
 
         train_data = train_data[~np.isnan(train_data).all(axis=2).all(axis=1)]
-
+        print("Creating training dataset")
         train_dataset = TensorDataset(torch.from_numpy(train_data).to(torch.float))
         train_loader = DataLoader(
             train_dataset,
@@ -173,6 +175,7 @@ class TS2Vec:
             shuffle=True,
             drop_last=True,
         )
+        print("Creating validation dataset")
         val_dataset = TensorDataset(torch.from_numpy(val_data).to(torch.float))
         val_loader = DataLoader(
             val_dataset,
@@ -180,27 +183,74 @@ class TS2Vec:
             shuffle=True,
             drop_last=True,
         )
+        # Load snapshot if it exists
+        snapshot_path = f"data/ts2vec/{model_name}_snapshot.pt"
+        if os.path.exists(snapshot_path):
+            snapshot = torch.load(snapshot_path, weights_only=True)
+            self.net.load_state_dict(snapshot["state"])
+            self.n_epochs = snapshot["current_epoch"] + 1
+            train_losses = snapshot["train_losses"]
+            val_losses = snapshot["val_losses"]
+            best_averaged_state = snapshot["best_averaged_state"]
+            best_encoder_state = snapshot["best_encoder_state"]
+        else:
+            best_averaged_state = self.net.state_dict()
+            best_encoder_state = self._net.state_dict()
+            self.n_epochs = 0
+            train_losses: list[float] = []
+            val_losses: list[float] = []
+
+        def save_snapshot(
+            epoch: int, train_losses: list[float], val_losses: list[float]
+        ):
+            current_train_loss = train_losses[-1]
+            current_val_loss = val_losses[-1]
+            current_averaged_state = self.net.state_dict()
+            current_encoder_state = self._net.state_dict()
+            if current_train_loss <= min(train_losses) and current_val_loss <= min(
+                val_losses
+            ):
+                nonlocal best_averaged_state
+                nonlocal best_encoder_state
+                best_averaged_state = current_averaged_state
+                best_encoder_state = current_encoder_state
+
+            snapshot = {
+                "best_averaged_state": best_averaged_state,
+                "averaged_state": current_averaged_state,
+                "best_encoder_state": best_encoder_state,
+                "encoder_state": current_encoder_state,
+                "current_epoch": epoch,
+                "train_losses": train_losses,
+                "val_losses": val_losses,
+                "tsencoder_hidden_dim": self.hidden_dim,
+                "tsencoder_depth": self.depth,
+                "ts_embedding_dim": self.output_dim,
+            }
+            torch.save(snapshot, snapshot_path)
 
         optimizer = torch.optim.AdamW(self._net.parameters(), lr=self.lr)
-
-        loss_log = {"train_loss": [], "val_loss": []}
-
+        print("Starting training")
         while True:
             if n_epochs is not None and self.n_epochs >= n_epochs:
                 break
 
-            train_average_loss, interrupted = self._train_or_val(
-                train_loader, optimizer, n_iters, mode="train"
+            train_average_loss = self._train_or_val(
+                train_loader, optimizer, mode="train"
             )
-            val_average_loss, _ = self._train_or_val(
-                val_loader, optimizer, None, mode="val"
-            )
+            val_average_loss = self._train_or_val(val_loader, optimizer, mode="val")
+            train_losses.append(train_average_loss)
+            val_losses.append(val_average_loss)
 
-            if interrupted:
-                break
+            if len(val_losses) > settled:
+                global_minimum = min(val_losses)
+                local_minimum = min(val_losses[-settled:])
+                if local_minimum > global_minimum:
+                    print(f"No improvement in {settled} epochs. Stopping training")
+                    break
 
-            loss_log["train_loss"].append(train_average_loss)
-            loss_log["val_loss"].append(val_average_loss)
+            save_snapshot(self.n_epochs, train_losses, val_losses)
+
             if verbose:
                 print(
                     f"Epoch #{self.n_epochs}: train_loss={train_average_loss}, val_loss={val_average_loss}"
@@ -209,8 +259,6 @@ class TS2Vec:
 
             if self.after_epoch_callback is not None:
                 self.after_epoch_callback(self, train_average_loss)
-
-        return loss_log
 
     def _eval_with_pooling(self, x, mask=None, slicing=None, encoding_window=None):
         out = self.net(x.to(self.device, non_blocking=True), mask)
@@ -385,5 +433,5 @@ class TS2Vec:
         Args:
             fn (str): filename.
         """
-        state_dict = torch.load(fn, map_location=self.device)
+        state_dict = torch.load(fn, map_location=self.device, weights_only=True)
         self.net.load_state_dict(state_dict)

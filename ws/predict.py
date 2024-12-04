@@ -1,18 +1,17 @@
-from json import encoder
-from typing import Optional
+import argparse
+import os
 
-import PIL.Image
-from torch import nn
-import torch
+import config
+from tqdm import tqdm
 import torch.nn.functional as nnf
-from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
+import torch
+from torch.utils.data import DataLoader
+from train_mapping import TsCaptionModel, TsCaptionPrefix, PTBXLEncodedDataset
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
+from TSCapMetrics import TSCapMetrics
 from typing_extensions import override
-
-from parse_ptb import load_encoder, preprocess
-from train_mapping import ClipCaptionModel, ClipCaptionPrefix, PTBXLEncodedDataset
-from torch.utils.data import DataLoader, Dataset
-from utils import pkl_load
+from utils import pkl_load, pkl_save
+from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
 
 T = torch.Tensor
 
@@ -37,7 +36,6 @@ def generate2(
     device = next(model.parameters()).device
 
     with torch.no_grad():
-
         for entry_idx in range(entry_count):
             if embed is not None:
                 generated = embed
@@ -49,7 +47,6 @@ def generate2(
                 generated = model.gpt.transformer.wte(tokens)
 
             for i in range(entry_length):
-
                 outputs = model.gpt(inputs_embeds=generated)
                 logits = outputs.logits
                 logits = logits[:, -1, :] / (temperature if temperature > 0 else 1.0)
@@ -75,42 +72,84 @@ def generate2(
                 if stop_token_index == next_token.item():
                     break
 
-            output_list = list(tokens.squeeze().view(-1).cpu().numpy())
-            output_text = tokenizer.decode(output_list)
-            generated_list.append(output_text)
+            if tokens is not None:
+                output_list = list(tokens.squeeze().view(-1).cpu().numpy())
+                output_text = tokenizer.decode(output_list)
+                generated_list.append(output_text)
 
     return generated_list[0]
 
 
-def main():
+def main(args):
     # setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    prefix_length = 10
-    clip_length = 10
-    batch_size = 40
-
-    weights_path = "results/coco_prefix-001.pt"
-    model = ClipCaptionModel(prefix_length, clip_length)
-    model.load_state_dict(torch.load(weights_path, map_location=torch.device("cpu")))
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2-medium")
+    snapshot_path = args.snapshot_path
+    model = TsCaptionModel(
+        config.prefix_length,
+        ts_embedding_length=config.ts_embedding_length,
+        ts_embedding_dim=config.ts_embedding_dim,
+        num_layers=config.mapper_num_layers,
+    )
+    state = torch.load(
+        snapshot_path, map_location=torch.device("cpu"), weights_only=True
+    )["state"]
+    # remove module. prefix
+    state = {k[7:]: v for k, v in state.items()}
+    model.load_state_dict(state)
     model = model.eval()
     model = model.to(device)
 
     data_path = "data/ptb-xl/parsed_ptb_test.pkl"
-    dataset = PTBXLEncodedDataset(data_path, prefix_length)
-    train_dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, drop_last=False
+    dataset = PTBXLEncodedDataset(data_path, config.prefix_length)
+    test_dataloader = DataLoader(dataset, batch_size=1, shuffle=True, drop_last=False)
+    hypotheses = []
+    references = []
+    print("Generating predictions...")
+    for _ in range(5):
+        hyp = []
+        ref = []
+        for idx, (tokens, mask, prefix) in tqdm(enumerate(test_dataloader)):
+            tokens = tokens.to(device)
+            mask = mask.to(device)
+            prefix = prefix.to(device)
+            with torch.no_grad():
+                prefix_embed = model.clip_project(prefix).reshape(
+                    1, config.prefix_length, -1
+                )
+            x = generate2(model, tokenizer, embed=prefix_embed)
+            hyp.append(x)
+            ref.append(tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
+            # print("gener", x)
+            # print("truth", tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
+        hypotheses.append(hyp)
+        if len(references) == 0:
+            references = ref
+    if args.metrics:
+        ts_cap_metrics = TSCapMetrics()
+        ts_cap_metrics.calculate_metrics(
+            references,
+            hypotheses,
+            out_dir="./metrics",
+            out_name=f"{os.path.basename(snapshot_path)[:-3]}.csv",
+            java_path="~/jdk-11.0.2/bin/java",
+        )
+
+
+def modify_parser(parser: Parser):
+    parser.add_argument(
+        "--snapshot_path",
+        required=True,
+        type=str,
+        help="The path to the snapshot file",
     )
-    for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
-        tokens = tokens.to(device)
-        mask = mask.to(device)
-        prefix = prefix.to(device)
-        with torch.no_grad():
-            prefix_embed = model.clip_project(prefix).reshape(1, prefix_length, -1)
-        # do we actually need this generate2 function?
-        x = generate2(model, tokenizer, embed=prefix_embed)
-        print(x)
+    parser.add_argument(
+        "--metrics",
+        dest="metrics",
+        action="store_true",
+    )
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_intermixed_args_local(modify_parser)
+    main(args)

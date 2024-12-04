@@ -156,10 +156,17 @@ dmypy.json
 cython_debug/
 
 # Data files
-ws/data/ptb-xl/*
-ws/data/mimic-iv-ecg/*
-ws/data/*.zip*
-!ws/data/ptb-xl/.gitkeep
+/ws/data/*
+!/ws/data/ptb-xl
+/ws/data/ptb-xl/*
+!/ws/data/ptb-xl/.gitkeep
+
+ws/.experiment_scripts/*
+ws/figures/*
+ws/results/*
+ws/metrics/*
+
+.rsyncignore_local
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

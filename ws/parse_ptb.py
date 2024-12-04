@@ -1,13 +1,13 @@
 import os
 import pickle
+import time
 
 import numpy as np
 import pandas as pd
 import scipy.signal
 import torch
-from tqdm import tqdm
 import wfdb
-
+from tqdm import tqdm
 from ts2vec import TS2Vec
 from utils import pkl_load, pkl_save
 
@@ -37,7 +37,7 @@ def load_raw_data(df, sampling_rate, path):
 
 
 def load_encoder(path=None):
-    encoder = TS2Vec(input_dims=12, device="cuda")
+    encoder = TS2Vec(input_dim=12, device="cuda")
     if path is not None:
         assert os.path.exists(path), "Encoder model path does not exist"
         encoder.load(path)
@@ -46,7 +46,7 @@ def load_encoder(path=None):
 
 def main():
     # Load the encoder from file if supplied and the model exists
-    encoder = load_encoder(path=None)
+    encoder = load_encoder(path="data/ts2vec/model.pkl")
     sampling_rate = 100
     # Number of samples to process at once
     n_samples = 100
@@ -66,35 +66,52 @@ def main():
 
     # Encodes the data row by row and saves the embeddings and reports in a pickle file
 
+    t = time.time()
     for out_name, dataset in [
-        ("parsed_ptb_train.pkl", ptb_df_train),
-        ("parsed_ptb_test.pkl", ptb_df_test),
-        ("parsed_ptb_val.pkl", ptb_df_val),
+        ("train", ptb_df_train),
+        ("test", ptb_df_test),
+        ("val", ptb_df_val),
     ]:
-        embedding_report_list = []
-        for i in tqdm(range(len(dataset))):
-            # dataset_slice is a dataframe with n_batch rows
-            dataset_slice = dataset[
-                i : i + 1
-            ]  # Get a single row as a dataframe instead of a series
-            # ecg_leads_data is of shape (n_batch, n_samples, n_channels)
-            ecg_leads_data = load_raw_data(dataset_slice, sampling_rate, data_folder)
-            preprocessed_data = preprocess(ecg_leads_data)
-            # Copy is a workaround for the preprocessing putting a negative stride on the nparray
-            # encoded_data is of shape (n_batch, n_embed)
-            encoded_data = encoder.encode(
-                preprocessed_data.copy(), encoding_window="full_series"
-            )
-            embedding_report_list.append(
-                {
-                    "embedding": encoded_data[0],
-                    "report": dataset_slice["report"].array[0],
-                    "ecg_id": dataset_slice["ecg_id"].array[0],
-                }
-            )
-        pkl_save(out_folder + out_name, embedding_report_list)
+        print(f"Loading {out_name} data")
+        ecg_leads_data = load_raw_data(dataset, sampling_rate, data_folder)
+        print(f"Preprocessing {out_name} data")
+        preprocessed_data = preprocess(ecg_leads_data)
+        print(f"Encoding {out_name} data")
+        encoded_data = encoder.encode(
+            preprocessed_data.copy(), encoding_window="full_series"
+        )
+        print(f"Saving parsed {out_name} data")
 
-    # This code is for processing the data in batches of n_samples but it's not that much faster
+        filtered_trace = 0
+        filtered_unconfirmed = 0
+        filtered_nans = 0
+        parsed_data = []
+        for i in range(len(dataset)):
+            embedding = encoded_data[i]
+            report = dataset.iloc[i].report
+            ecg_id = dataset.iloc[i].ecg_id
+            if type(report) == float:
+                filtered_nans += 1
+                continue
+            if "trace only" in report:
+                filtered_trace += 1
+                continue
+            if "unconfirmed report" in report:
+                filtered_unconfirmed += 1
+                report = report.replace("unconfirmed report", "")
+
+            parsed_data.append(
+                {"embedding": embedding, "report": report, "ecg_id": ecg_id}
+            )
+
+        pkl_save(out_folder + f"parsed_ptb_{out_name}.pkl", parsed_data)
+        print(
+            f"Filtered {filtered_trace} trace only reports, {filtered_unconfirmed} unconfirmed reports and {filtered_nans} NaNs"
+        )
+    print(f"Time taken: {time.time()-t}")
+
+    # This code is for processing the data in batches of n_samples if the memory
+    # is not enough to process all the data at once
 
     # for out_name, dataset in [("parsed_ptb_train.pkl", ptb_df_train), ("parsed_ptb_test.pkl", ptb_df_test)]:
     #     embedding_report_list = []
