@@ -6,7 +6,9 @@ from ail_parser import parse_intermixed_args
 
 if __name__ == "__main__":
     # cut off the first argument, which is the Python file path
-    args = parse_intermixed_args(sys_args=sys.argv[2:], uninstalled_requirements=True)
+    args, rest = parse_intermixed_args(
+        sys_args=sys.argv[2:], uninstalled_requirements=True
+    )
 
     if not args.no_install:
         subprocess.call([sys.executable, "-m", "ensurepip"])
@@ -18,7 +20,7 @@ if __name__ == "__main__":
                 "install",
                 "--no-cache-dir",
                 "-r",
-                "requirements.txt",
+                "requirements_new.txt",
             ],
             # set the TMPDIR environment variable to a directory in the current
             # directory to avoid storage limit issues on the /tmp directory
@@ -27,11 +29,12 @@ if __name__ == "__main__":
 
     import torch
 
+    python_args = [sys.argv[1]] + rest
     gpu_count = torch.cuda.device_count()
     command = (
-        ["torchrun", "--nproc_per_node=" + str(gpu_count)] + sys.argv[1:]
+        ["torchrun", "--nproc_per_node=" + str(gpu_count)] + python_args
         if args.torchrun
-        else ["python3", "-u"] + sys.argv[1:]
+        else ["python3", "-u"] + python_args
     )
     print("Running command: ", command)
     subprocess.run(command)

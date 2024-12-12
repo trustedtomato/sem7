@@ -2,7 +2,7 @@ from ail_parser import parse_intermixed_args
 
 # output the parsed arguments in a format that can be consumed by bash
 if __name__ == "__main__":
-    args = parse_intermixed_args(uninstalled_requirements=True)
+    args, rest = parse_intermixed_args(uninstalled_requirements=True)
     print("ail_opt_successful_arg_parse=1")
     for arg in vars(args):
         value = getattr(args, arg)

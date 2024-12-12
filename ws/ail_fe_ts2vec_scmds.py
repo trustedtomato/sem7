@@ -5,16 +5,23 @@ from ail_fe_main_scmds import SCmd
 
 
 def modify_parser(parser: argparse._ArgumentGroup):
-    pass
+    parser.add_argument(
+        "--experiment_path",
+        type=str,
+        required=True,
+        help="Path to the JSON file containing the experiments without extension",
+    )
 
 
 def get_scmd(experiment):
     hd = experiment["tsencoder_hidden_dim"]
     d = experiment["tsencoder_depth"]
     ed = experiment["ts_embedding_dim"]
-    name = f"ts2vec_hd{hd}_d{d}_ed{ed}"
+    epochs = experiment.get("epochs", 1000)
+    folder_name = experiment["folder_name"]
+    name = f"ts2vec_hd{hd}_d{d}_ed{ed}_ep{epochs}"
     return SCmd(
-        program="sbatch",
+        program="srun",
         opts=["-J", name, f"--gres=gpu:1", "--mem-per-gpu=30G"],
         python_module="train_ts2vec",
         python_args=[
@@ -27,12 +34,18 @@ def get_scmd(experiment):
             "--ts_embedding_dim",
             ed,
             "--epochs",
-            1000,
+            epochs,
+            "--folder_name",
+            folder_name,
         ],
     )
 
 
 def get_scmds(args: argparse.Namespace):
-    with open("ts2vec_experiments.json", "r") as f:
-        experiments = json.load(f)
+    with open(f"{args.experiment_path}.json", "r") as f:
+        experiments_dict = json.load(f)
+        folder_name = experiments_dict["folder_name"]
+        experiments = experiments_dict["experiments"]
+        for experiment in experiments:
+            experiment["folder_name"] = folder_name
     return [get_scmd(experiment) for experiment in experiments]
