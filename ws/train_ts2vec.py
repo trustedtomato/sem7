@@ -7,10 +7,10 @@ import time
 import config
 import pandas as pd
 import torch
+from ail_parser import Parser
 from parse_ptb import load_raw_data, preprocess
 from ts2vec import TS2Vec
 from utils import data_dropout, init_dl_program, name_with_datetime, pkl_save
-from ail_parser import Parser, parse_intermixed_args_local
 
 
 def load_ptb_data(data_path="data/ptb-xl/"):
@@ -43,7 +43,7 @@ def main(args):
 
     print("Done")
 
-    output_dir = "data/ts2vec"
+    output_dir = f"data/{args.folder_name}"
     os.makedirs(output_dir, exist_ok=True)
     t = time.time()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -57,8 +57,8 @@ def main(args):
         output_dim=args.ts_embedding_dim,
         max_train_length=args.max_train_length,
     )
-
-    # This saves the model on it's own too when it's done training
+    print(args.model_name)
+    # This saves the model on it's own when it's done training
     model.fit(
         train_data,
         val_data,
@@ -66,11 +66,13 @@ def main(args):
         model_name=args.model_name,
         n_epochs=args.epochs,
         verbose=True,
+        folder_name=args.folder_name,
     )
     # #model.save(f"{output_dir}/{args.model_name}.pkl")
 
     t = time.time() - t
-    snapshot_path = f"data/ts2vec/{args.model_name}_snapshot.pt"
+    snapshot_path = f"data/{args.folder_name}/{args.model_name}_snapshot.pt"
+    print(snapshot_path)
     snapshot = torch.load(snapshot_path, weights_only=True)
     snapshot["training_time"] = t
     torch.save(snapshot, snapshot_path)
@@ -129,8 +131,16 @@ def modify_parser(parser: Parser):
         default=config.ts_embedding_dim,
         help="If not using config set the embedding dimension of the encoder",
     )
+    parser.add_argument(
+        "--folder_name",
+        type=str,
+        default="ts2vec",
+        help="The folder name to save the model",
+    )
 
 
 if __name__ == "__main__":
-    args = parse_intermixed_args_local(modify_parser)
+    parser = argparse.ArgumentParser()
+    modify_parser(parser)
+    args = parser.parse_intermixed_args()
     main(args)

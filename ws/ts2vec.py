@@ -138,6 +138,7 @@ class TS2Vec:
         train_data: np.ndarray,
         val_data: np.ndarray,
         settled: int,
+        folder_name: str,
         model_name: str | None = None,
         n_epochs: int | None = None,
         verbose: bool = False,
@@ -184,10 +185,11 @@ class TS2Vec:
             drop_last=True,
         )
         # Load snapshot if it exists
-        snapshot_path = f"data/ts2vec/{model_name}_snapshot.pt"
+        snapshot_path = f"data/{folder_name}/{model_name}_snapshot.pt"
         if os.path.exists(snapshot_path):
             snapshot = torch.load(snapshot_path, weights_only=True)
-            self.net.load_state_dict(snapshot["state"])
+            self.net.load_state_dict(snapshot["best_averaged_state"])
+            self._net.load_state_dict(snapshot["best_encoder_state"])
             self.n_epochs = snapshot["current_epoch"] + 1
             train_losses = snapshot["train_losses"]
             val_losses = snapshot["val_losses"]
@@ -226,6 +228,7 @@ class TS2Vec:
                 "tsencoder_hidden_dim": self.hidden_dim,
                 "tsencoder_depth": self.depth,
                 "ts_embedding_dim": self.output_dim,
+                "epochs": n_epochs,
             }
             torch.save(snapshot, snapshot_path)
 

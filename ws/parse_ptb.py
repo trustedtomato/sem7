@@ -1,12 +1,16 @@
+import argparse
 import os
 import pickle
 import time
+from ast import arg
 
+import config
 import numpy as np
 import pandas as pd
 import scipy.signal
 import torch
 import wfdb
+from ail_parser import Parser, parse_intermixed_args
 from tqdm import tqdm
 from ts2vec import TS2Vec
 from utils import pkl_load, pkl_save
@@ -35,24 +39,51 @@ def load_raw_data(df, sampling_rate, path):
     ]
     return np.array([signal for signal, meta in data])
 
+    # snapshot = {
+    #     "best_averaged_state": best_averaged_state,
+    #     "averaged_state": current_averaged_state,
+    #     "best_encoder_state": best_encoder_state,
+    #     "encoder_state": current_encoder_state,
+    #     "current_epoch": epoch,
+    #     "train_losses": train_losses,
+    #     "val_losses": val_losses,
+    #     "tsencoder_hidden_dim": self.hidden_dim,
+    #     "tsencoder_depth": self.depth,
+    #     "ts_embedding_dim": self.output_dim,
+    # }
 
-def load_encoder(path=None):
-    encoder = TS2Vec(input_dim=12, device="cuda")
-    if path is not None:
-        assert os.path.exists(path), "Encoder model path does not exist"
-        encoder.load(path)
-    return encoder
+
+def load_encoder(path: str):
+    ts2vec_snapshot = torch.load(path)
+    hd = ts2vec_snapshot["tsencoder_hidden_dim"]
+    d = ts2vec_snapshot["tsencoder_depth"]
+    ed = ts2vec_snapshot["ts_embedding_dim"]
+    epochs = ts2vec_snapshot["epochs"]
+    model_name = f"ts2vec_hd{hd}_d{d}_ed{ed}_ep{epochs}"
+    encoder = TS2Vec(
+        input_dim=12,
+        depth=d,
+        hidden_dim=hd,
+        output_dim=ed,
+        batch_size=1,
+        device="cuda",
+    )
+    encoder.net.load_state_dict(ts2vec_snapshot["best_averaged_state"])
+    encoder._net.load_state_dict(ts2vec_snapshot["best_encoder_state"])
+
+    return encoder, model_name
 
 
-def main():
+def main(args):
     # Load the encoder from file if supplied and the model exists
-    encoder = load_encoder(path="data/ts2vec/model.pkl")
+    encoder, model_name = load_encoder(path=args.ts2vec_path)
     sampling_rate = 100
     # Number of samples to process at once
     n_samples = 100
     data_folder = "data/ptb-xl/"
-    out_folder = "data/ptb-xl/"
-
+    out_folder = args.out_folder
+    if not os.path.exists(out_folder):
+        os.makedirs(out_folder)
     train_fold_size = 8
     val_fold_size = 1
     ptb_df = pd.read_csv(data_folder + "ptbxl_database_translated.csv")
@@ -104,7 +135,7 @@ def main():
                 {"embedding": embedding, "report": report, "ecg_id": ecg_id}
             )
 
-        pkl_save(out_folder + f"parsed_ptb_{out_name}.pkl", parsed_data)
+        pkl_save(out_folder + f"{model_name}_parsed_ptb_{out_name}.pkl", parsed_data)
         print(
             f"Filtered {filtered_trace} trace only reports, {filtered_unconfirmed} unconfirmed reports and {filtered_nans} NaNs"
         )
@@ -126,5 +157,13 @@ def main():
     #         pickle.dump(embedding_report_list, f)
 
 
+def modify_parser(parser: Parser):
+    parser.add_argument("--ts2vec_path", type=str, required=True)
+    parser.add_argument("--out_folder", type=str, required=True)
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    modify_parser(parser)
+    args = parser.parse_intermixed_args()
+    main(args)

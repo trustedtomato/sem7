@@ -2,16 +2,17 @@ import argparse
 import os
 
 import config
-from tqdm import tqdm
-import torch.nn.functional as nnf
+import pandas as pd
 import torch
+import torch.nn.functional as nnf
+from ail_parser import Parser, parse_intermixed_args
 from torch.utils.data import DataLoader
-from train_mapping import TsCaptionModel, TsCaptionPrefix, PTBXLEncodedDataset
+from tqdm import tqdm
+from train_mapping import PTBXLEncodedDataset, TsCaptionModel, TsCaptionPrefix
 from transformers.models.gpt2.tokenization_gpt2 import GPT2Tokenizer
 from TSCapMetrics import TSCapMetrics
 from typing_extensions import override
 from utils import pkl_load, pkl_save
-from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
 
 T = torch.Tensor
 
@@ -80,16 +81,39 @@ def generate2(
     return generated_list[0]
 
 
+def get_test_loss(model, dataloader, device):
+    model.eval()
+    torch.set_grad_enabled(False)
+    sum_test_loss = 0
+    for idx, (tokens, mask, prefix) in enumerate(dataloader):
+        tokens, mask, prefix = (
+            tokens.to(device),
+            mask.to(device),
+            prefix.to(device, dtype=torch.float32),
+        )
+        logits = model(tokens, prefix, mask)
+        loss = nnf.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            tokens.flatten(),
+            ignore_index=0,
+        )
+        sum_test_loss += loss.item()
+    return sum_test_loss / len(dataloader)
+
+
 def main(args):
     # setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2-medium")
+    data_path = args.test_path
+    dataset = PTBXLEncodedDataset(data_path, args.prefix_length)
+    test_dataloader = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
     snapshot_path = args.snapshot_path
     model = TsCaptionModel(
-        config.prefix_length,
-        ts_embedding_length=config.ts_embedding_length,
-        ts_embedding_dim=config.ts_embedding_dim,
-        num_layers=config.mapper_num_layers,
+        args.prefix_length,
+        ts_embedding_length=args.ts_embedding_length,
+        ts_embedding_dim=dataset.embedding_dim,
+        num_layers=args.mapper_num_layers,
     )
     state = torch.load(
         snapshot_path, map_location=torch.device("cpu"), weights_only=True
@@ -100,13 +124,11 @@ def main(args):
     model = model.eval()
     model = model.to(device)
 
-    data_path = "data/ptb-xl/parsed_ptb_test.pkl"
-    dataset = PTBXLEncodedDataset(data_path, config.prefix_length)
-    test_dataloader = DataLoader(dataset, batch_size=1, shuffle=True, drop_last=False)
     hypotheses = []
     references = []
     print("Generating predictions...")
-    for _ in range(5):
+    test_loss = get_test_loss(model, test_dataloader, device)
+    for _ in range(args.n_iter):
         hyp = []
         ref = []
         for idx, (tokens, mask, prefix) in tqdm(enumerate(test_dataloader)):
@@ -115,28 +137,44 @@ def main(args):
             prefix = prefix.to(device)
             with torch.no_grad():
                 prefix_embed = model.clip_project(prefix).reshape(
-                    1, config.prefix_length, -1
+                    1, args.prefix_length, -1
                 )
             x = generate2(model, tokenizer, embed=prefix_embed)
             hyp.append(x)
             ref.append(tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
-            # print("gener", x)
-            # print("truth", tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
+            # if idx % 100 == 0:
+            #     print("\ngener", x)
+            #     print(
+            #         "truth",
+            #         tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"),
+            #     )
         hypotheses.append(hyp)
         if len(references) == 0:
             references = ref
+    if args.save_examples:
+        hyp = hypotheses[0]
+        hyp_ref_zip = list(zip(hyp, references))
+        df = pd.DataFrame(hyp_ref_zip, columns=["Hyp", "Ref"])
+        df.to_csv(f"./{args.out_dir}/{args.out_name}.csv")
+
     if args.metrics:
         ts_cap_metrics = TSCapMetrics()
         ts_cap_metrics.calculate_metrics(
             references,
             hypotheses,
-            out_dir="./metrics",
-            out_name=f"{os.path.basename(snapshot_path)[:-3]}.csv",
-            java_path="~/jdk-11.0.2/bin/java",
+            test_loss,
+            out_dir=args.out_dir,
+            out_name=f"{args.out_name}.csv",
         )
 
 
 def modify_parser(parser: Parser):
+    parser.add_argument(
+        "--test_path",
+        required=True,
+        type=str,
+        help="The path to the test dataset",
+    )
     parser.add_argument(
         "--snapshot_path",
         required=True,
@@ -144,12 +182,45 @@ def modify_parser(parser: Parser):
         help="The path to the snapshot file",
     )
     parser.add_argument(
+        "--out_dir",
+        required=True,
+        type=str,
+        help="The path to the output folder",
+    )
+    parser.add_argument(
+        "--out_name",
+        required=True,
+        type=str,
+        help="The name of the output file without extension",
+    )
+    parser.add_argument(
+        "--n_iter",
+        required=True,
+        type=int,
+        help="The number of iterations for metrics",
+    )
+    parser.add_argument(
         "--metrics",
         dest="metrics",
         action="store_true",
     )
+    parser.add_argument(
+        "--save_examples",
+        dest="save_examples",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--ts_embedding_length", type=int, default=config.ts_embedding_length
+    )
+    parser.add_argument(
+        "--mapper_num_layers", type=int, default=config.mapper_num_layers
+    )
+    parser.add_argument("--prefix_length", type=int, default=config.prefix_length)
 
 
 if __name__ == "__main__":
-    args = parse_intermixed_args_local(modify_parser)
+    parser = argparse.ArgumentParser()
+    modify_parser(parser)
+    args = parser.parse_intermixed_args()
     main(args)
