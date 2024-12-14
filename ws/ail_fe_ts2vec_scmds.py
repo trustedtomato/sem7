@@ -14,7 +14,6 @@ def get_scmd(experiment):
     ed = experiment["ts_embedding_dim"]
     name = f"ts2vec_hd{hd}_d{d}_ed{ed}"
     return SCmd(
-        program="sbatch",
         opts=["-J", name, f"--gres=gpu:1", "--mem-per-gpu=30G"],
         python_module="train_ts2vec",
         python_args=[

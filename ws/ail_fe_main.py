@@ -23,15 +23,6 @@ def main(args: argparse.Namespace):
         for job in jobs:
             subprocess.run(["scancel", job])
 
-    # result = subprocess.run(["sinfo"], capture_output=True, text=True)
-    # free_nodes = ""
-    # for line in result.stdout.splitlines():
-    #     if "idle" in line:
-    #         free_nodes = line.split("idle ")[1]
-    #         break
-
-    # print(f"Idle nodes: {free_nodes}")
-
     scmds: list[SCmd] = __import__(args.scmds_from).get_scmds(args)
 
     for scmd in scmds:
@@ -44,10 +35,8 @@ def main(args: argparse.Namespace):
             raise ImportError(f"Module {args.f} not found (origin)")
 
         command = [
-            scmd.program,
+            "srun",
             *scmd.opts,
-            # "-w",
-            # free_nodes,
             "singularity",
             "exec",
             "--nv",
