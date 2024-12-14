@@ -1,8 +1,8 @@
 import argparse
-from importlib.util import find_spec
 import os
 import subprocess
 import sys
+from importlib.util import find_spec
 
 from ail_fe_main_scmds import SCmd
 from ail_parser import parse_intermixed_args
@@ -40,7 +40,7 @@ def main(args: argparse.Namespace):
             "singularity",
             "exec",
             "--nv",
-            "/ceph/container/pytorch/pytorch_24.11.sif",
+            "/ceph/container/pytorch/pytorch_24.09.sif",
             "bash",
             "ail_slurm_main.sh",
             module_path,
@@ -48,9 +48,9 @@ def main(args: argparse.Namespace):
             *scmd.python_args,
         ]
         print("Running command", command)
-        subprocess.run(command)
+        subprocess.Popen(command)
 
 
 if __name__ == "__main__":
-    args = parse_intermixed_args(uninstalled_requirements=True)
+    args, rest = parse_intermixed_args(uninstalled_requirements=True)
     main(args)

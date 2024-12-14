@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 import config
 import torch
 import torch.nn as nn
-from ail_parser import Parser, parse_intermixed_args, parse_intermixed_args_local
+from ail_parser import Parser, parse_intermixed_args
 from torch.distributed import all_reduce, destroy_process_group, init_process_group
 from torch.nn import functional as nnf
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -59,6 +59,7 @@ class PTBXLEncodedDataset(Dataset):
             self.report_tokens.append(report_tokenized)
 
         self.max_seq_len = max([len(tokens) for tokens in self.report_tokens])
+        self.embedding_dim = self.encoder_embeddings[0].shape[-1]
 
     def __len__(self) -> int:
         return len(self.report_tokens)
@@ -351,7 +352,7 @@ def train(
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
 
-    snapshot_path = os.path.join(args.out_dir, f"{args.prefix}_snapshot.pt")
+    snapshot_path = os.path.join(args.out_dir, f"{args.model_name}_snapshot.pt")
 
     print(f"Using device {device}")
     model = model.to(device)
@@ -470,8 +471,7 @@ def train(
                 mask.to(device),
                 prefix.to(device, dtype=torch.float32),
             )
-            outputs = model(tokens, prefix, mask)
-            logits = outputs.logits[:, dataset.prefix_length - 1 : -1]
+            logits = model(tokens, prefix, mask)
             loss = nnf.cross_entropy(
                 logits.reshape(-1, logits.shape[-1]),
                 tokens.flatten(),
@@ -533,7 +533,7 @@ def main(args):
         model = TsCaptionPrefix(
             args.prefix_length,
             ts_embedding_length=args.ts_embedding_length,
-            ts_embedding_dim=args.ts_embedding_dim,
+            ts_embedding_dim=dataset.embedding_dim,
             num_layers=args.mapper_num_layers,
         )
         print("Train only prefix")
@@ -541,7 +541,7 @@ def main(args):
         model = TsCaptionModel(
             args.prefix_length,
             ts_embedding_length=args.ts_embedding_length,
-            ts_embedding_dim=args.ts_embedding_dim,
+            ts_embedding_dim=dataset.embedding_dim,
             num_layers=args.mapper_num_layers,
         )
         print("Train both prefix and GPT")
@@ -553,7 +553,9 @@ def modify_parser(parser: Parser):
     parser.add_argument("--data", default="./data/ptb-xl/parsed_ptb_train.pkl")
     parser.add_argument("--val_data", default="./data/ptb-xl/parsed_ptb_val.pkl")
     parser.add_argument("--out_dir", default="./data/tscap")
-    parser.add_argument("--prefix", default="tscap", help="prefix for saved filenames")
+    parser.add_argument(
+        "--model_name", default="tscap", help="name for saved filenames"
+    )
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument(
         "--ts_embedding_length", type=int, default=config.ts_embedding_length
@@ -565,7 +567,7 @@ def modify_parser(parser: Parser):
     parser.add_argument(
         "--settled",
         type=int,
-        default=5,
+        default=3,
         help="number of epochs to wait before early stopping if no improvement",
     )
     parser.add_argument("--only_prefix", action="store_true")
@@ -575,5 +577,7 @@ def modify_parser(parser: Parser):
 
 
 if __name__ == "__main__":
-    args = parse_intermixed_args_local(modify_parser)
+    parser = argparse.ArgumentParser()
+    modify_parser(parser)
+    args = parser.parse_intermixed_args()
     main(args)

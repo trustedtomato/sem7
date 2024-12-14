@@ -1,16 +1,15 @@
 import argparse
 import builtins
-from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 import logging
-from os import devnull
 import os
 import sys
 import traceback
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from os import devnull
 from types import ModuleType
 from typing import Any, Callable, Sequence
 
 from ail_fe_main_scmds import SCmd
-
 
 Parser = argparse.ArgumentParser | argparse._ArgumentGroup
 
@@ -65,44 +64,11 @@ def suppress_stdout_stderr():
             yield (err, out)
 
 
-# Used by the target script. The unique thing about the target script is that it
-# can be called from the frontend, or locally, on your machine. And due to
-# limitations, the frontend also forwards all other arguments to the target
-# script.
-def parse_intermixed_args_local(
-    modify_parser: Callable[[argparse.ArgumentParser | argparse._ArgumentGroup], None]
-) -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    modify_parser(parser)
-
-    with suppress_stdout_stderr():
-        # first try with local-only arguments
-        try:
-            return parser.parse_intermixed_args()
-        # Normally, we would use exit_on_error=False, but that doesn't work in
-        # all cases in Python 3.10, which is what we have on the AI-Lab
-        # frontend. See the issue here:
-        # https://github.com/python/cpython/issues/103498
-        except SystemExit:
-            pass
-
-        # now try with all frontend argument
-        try:
-            return parse_intermixed_args()
-        except SystemExit:
-            pass
-
-    # if all of the above, raise the original error - we don't expect the call
-    # to fail on the frontend because we have already tested it when running
-    # ail_run.sh
-    return parser.parse_intermixed_args()
-
-
 # orchestrate all parsers
 def parse_intermixed_args(
     uninstalled_requirements=False,
     sys_args: list[str] = sys.argv[1:],
-) -> argparse.Namespace:
+) -> tuple[argparse.Namespace, list[str]]:
     requirements_path = "./requirements.txt"
     with open(requirements_path, "r") as f:
         requirements = [pkg.split("==")[0] for pkg in f.read().splitlines()]
@@ -214,4 +180,4 @@ def parse_intermixed_args(
                 )
             parser.parse_intermixed_args(sys_args + scmd.python_args)
 
-    return parser.parse_intermixed_args(sys_args + scmds[0].python_args)
+    return (parser.parse_intermixed_args(sys_args + scmds[0].python_args), rest)

@@ -14,28 +14,17 @@ def modify_parser(parser: argparse._ArgumentGroup):
 
 
 def get_scmd(experiment):
-    hd = experiment["tsencoder_hidden_dim"]
-    d = experiment["tsencoder_depth"]
-    ed = experiment["ts_embedding_dim"]
-    epochs = experiment.get("epochs", 1000)
+    ts2vec_path = experiment["encoder_path"]
     folder_name = experiment["folder_name"]
-    name = f"ts2vec_hd{hd}_d{d}_ed{ed}_ep{epochs}"
     return SCmd(
-        opts=["-J", name, f"--gres=gpu:1", "--mem-per-gpu=30G"],
-        python_module="train_ts2vec",
+        program="srun",
+        opts=["-J", "parsing", f"--gres=gpu:1", "--mem-per-gpu=30G"],
+        python_module="parse_ptb",
         python_args=[
-            "--model_name",
-            name,
-            "--tsencoder_depth",
-            d,
-            "--tsencoder_hidden_dim",
-            hd,
-            "--ts_embedding_dim",
-            ed,
-            "--epochs",
-            epochs,
-            "--folder_name",
-            folder_name,
+            "--ts2vec_path",
+            ts2vec_path,
+            "--out_folder",
+            f"./data/ptb-xl/{folder_name}/",
         ],
     )
 
@@ -43,8 +32,9 @@ def get_scmd(experiment):
 def get_scmds(args: argparse.Namespace):
     with open(f"{args.experiment_path}.json", "r") as f:
         experiments_dict = json.load(f)
-        folder_name = experiments_dict["folder_name"]
         experiments = experiments_dict["experiments"]
+        folder_name = experiments_dict["folder_name"]
         for experiment in experiments:
             experiment["folder_name"] = folder_name
+
     return [get_scmd(experiment) for experiment in experiments]
