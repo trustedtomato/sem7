@@ -20,7 +20,7 @@ if __name__ == "__main__":
                 "install",
                 "--no-cache-dir",
                 "-r",
-                "requirements_new.txt",
+                "requirements.txt",
             ],
             # set the TMPDIR environment variable to a directory in the current
             # directory to avoid storage limit issues on the /tmp directory
