@@ -34,7 +34,7 @@ class TSCapMetrics:
         self._metrics[metric_name].append(score)
 
     # Function to calculate sacreBLEU score
-    def _calculate_bleu_scores(self, ref_sentences, hyp_sentences):
+    def _calculate_sacrebleu_scores(self, ref_sentences, hyp_sentences):
         sacre_bleu_score = sacrebleu.corpus_bleu(hyp_sentences, [ref_sentences])
         self._add_score_to_metrics("sacreBLEU", sacre_bleu_score.score / 100)
 
@@ -75,7 +75,7 @@ class TSCapMetrics:
         # See the example in main
         metrics_with_conf_int = {}
         for i in tqdm(range(len(hyp_sentences))):
-            self._calculate_bleu_scores(ref_sentences, hyp_sentences[i])
+            self._calculate_sacrebleu_scores(ref_sentences, hyp_sentences[i])
             self._calculate_rouge_scores(ref_sentences, hyp_sentences[i])
             self._calculate_aac_scores(ref_sentences, hyp_sentences[i])
 

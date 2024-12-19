@@ -140,8 +140,12 @@ def main(args):
                     1, args.prefix_length, -1
                 )
             x = generate2(model, tokenizer, embed=prefix_embed)
-            hyp.append(x)
-            ref.append(tokenizer.decode(tokens.squeeze().cpu().numpy()).rstrip("!"))
+            hyp.append(x.replace("\n", ""))
+            ref.append(
+                tokenizer.decode(tokens.squeeze().cpu().numpy())
+                .rstrip("!")
+                .replace("\n", "")
+            )
             # if idx % 100 == 0:
             #     print("\ngener", x)
             #     print(

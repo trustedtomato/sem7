@@ -14,7 +14,7 @@ def modify_parser(parser: argparse._ArgumentGroup):
     )
 
 
-def get_scmd(experiment):
+def get_scmd(experiment, folder_name):
     el = experiment["ts_embedding_length"]
     nl = experiment["mapper_num_layers"]
     pl = experiment["prefix_length"]
@@ -68,7 +68,6 @@ def get_scmds(args: argparse.Namespace):
         experiments = experiments_dict["experiments"]
         folder_name = experiments_dict["folder_name"]
         for i, experiment in enumerate(experiments):
-            experiment["folder_name"] = folder_name
             experiment["index"] = i
 
-    return [get_scmd(experiment) for experiment in experiments]
+    return [get_scmd(experiment, folder_name) for experiment in experiments]

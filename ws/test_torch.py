@@ -1,5 +1,6 @@
+import argparse
+
 import torch
-from ail_parser import parse_intermixed_args_local
 
 
 def modify_parser(parser):
@@ -16,6 +17,9 @@ def main(args):
 
 
 if __name__ == "__main__":
-    main(parse_intermixed_args_local(modify_parser))
+    parser = argparse.ArgumentParser()
+    modify_parser(parser)
+    args = parser.parse_intermixed_args()
+    main(args)
 
 # This is a test script to check if torch is installed correctly
