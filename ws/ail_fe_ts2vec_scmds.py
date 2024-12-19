@@ -20,7 +20,6 @@ def get_scmd(experiment, folder_name):
     epochs = experiment["epochs"]
     name = f"ts2vec_hd{hd}_d{d}_ed{ed}_ep{epochs}"
     return SCmd(
-        program="srun",
         opts=["-J", name, f"--gres=gpu:1", "--mem-per-gpu=30G"],
         python_module="train_ts2vec",
         python_args=[
