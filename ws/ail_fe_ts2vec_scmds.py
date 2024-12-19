@@ -13,12 +13,11 @@ def modify_parser(parser: argparse._ArgumentGroup):
     )
 
 
-def get_scmd(experiment):
+def get_scmd(experiment, folder_name):
     hd = experiment["tsencoder_hidden_dim"]
     d = experiment["tsencoder_depth"]
     ed = experiment["ts_embedding_dim"]
-    epochs = experiment.get("epochs", 1000)
-    folder_name = experiment["folder_name"]
+    epochs = experiment["epochs"]
     name = f"ts2vec_hd{hd}_d{d}_ed{ed}_ep{epochs}"
     return SCmd(
         program="srun",
@@ -46,6 +45,5 @@ def get_scmds(args: argparse.Namespace):
         experiments_dict = json.load(f)
         folder_name = experiments_dict["folder_name"]
         experiments = experiments_dict["experiments"]
-        for experiment in experiments:
-            experiment["folder_name"] = folder_name
-    return [get_scmd(experiment) for experiment in experiments]
+
+    return [get_scmd(experiment, folder_name) for experiment in experiments]
