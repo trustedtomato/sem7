@@ -1,13 +1,11 @@
 import argparse
 import builtins
-import logging
-import os
+from contextlib import nullcontext
+from copy import deepcopy
 import sys
 import traceback
-from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
-from os import devnull
 from types import ModuleType
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from ail_fe_main_scmds import SCmd
 
@@ -23,6 +21,9 @@ class DummyModule(ModuleType):
 
     def __mro_entries__(self, bases):
         return (self, self)
+
+    def __getitem__(self, key):
+        return self
 
     def __init__(self, name: str, doc: str | None = "", *rest) -> None:
         if type(name) is str and (doc is None or type(doc) is str):
@@ -45,7 +46,7 @@ class DummyImport:
             try:
                 return self.realimport(name, globals, locals, fromlist, level)
             except ImportError as err:
-                print("Tried to import", name, file=sys.stderr)
+                print("(!) Tried to import", name, file=sys.stderr)
                 print(self.import_err, file=sys.stderr)
                 traceback.print_exception(err)
                 raise err
@@ -56,14 +57,6 @@ class DummyImport:
         builtins.__import__ = self.realimport
 
 
-@contextmanager
-def suppress_stdout_stderr():
-    """A context manager that redirects stdout and stderr to devnull"""
-    with open(devnull, "w") as fnull:
-        with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
-            yield (err, out)
-
-
 # orchestrate all parsers
 def parse_intermixed_args(
     uninstalled_requirements=False,
@@ -72,6 +65,10 @@ def parse_intermixed_args(
     requirements_path = "./requirements.txt"
     with open(requirements_path, "r") as f:
         requirements = [pkg.split("==")[0] for pkg in f.read().splitlines()]
+        requirements = [
+            pkg[2:] if pkg.startswith("#:") else pkg for pkg in requirements
+        ]
+        requirements = [pkg for pkg in requirements if not pkg.startswith("#")]
 
     parser = argparse.ArgumentParser(
         add_help=False,
@@ -111,7 +108,7 @@ def parse_intermixed_args(
     )
     slurm_options.add_argument(
         "--torchrun",
-        "-t",
+        "-T",
         action="store_true",
         help="Use torchrun to run the Python command.",
     )
@@ -147,16 +144,16 @@ def parse_intermixed_args(
         scmds: list[SCmd] = scmds_module.get_scmds(args)
 
         slurm_options.add_argument(
-            "-f",
-            "--file",
+            "-t",
+            "--target",
             type=str,
             required=any(scmd.python_module is None for scmd in scmds),
-            help="The Python file to run in the Slurm job with torchrun.",
+            help="The Python target module to run in the Slurm job with torchrun.",
         )
         (args, rest) = parser.parse_known_intermixed_args(sys_args)
 
-        for i, scmd in enumerate(scmds):
-            py_slurm_module_name = scmd.python_module or args.file
+        for scmd in scmds:
+            py_slurm_module_name = scmd.python_module or args.target
             try:
                 py_slurm_module = __import__(py_slurm_module_name)
             except ModuleNotFoundError:
@@ -167,17 +164,17 @@ def parse_intermixed_args(
                 raise AttributeError(
                     f"Module {py_slurm_module_name} does not have a modify_parser function."
                 )
-            if i == 0:
-                target_options = parser.add_argument_group(
-                    "options for the target script"
-                )
-                py_slurm_module.modify_parser(target_options)
-                parser.add_argument(
-                    "--help",
-                    "-h",
-                    action="help",
-                    help="Show this help message and exit.",
-                )
-            parser.parse_intermixed_args(sys_args + scmd.python_args)
+            parser_copy = deepcopy(parser)
+            target_options = parser_copy.add_argument_group(
+                "options for the target script"
+            )
+            py_slurm_module.modify_parser(target_options)
+            parser_copy.add_argument(
+                "--help",
+                "-h",
+                action="help",
+                help="Show this help message and exit.",
+            )
+            parser_copy.parse_intermixed_args(sys_args + scmd.python_args)
 
-    return (parser.parse_intermixed_args(sys_args + scmds[0].python_args), rest)
+    return (args, rest)

@@ -26,7 +26,7 @@ def main(args: argparse.Namespace):
     scmds: list[SCmd] = __import__(args.scmds_from).get_scmds(args)
 
     for scmd in scmds:
-        module_name = scmd.python_module or args.file
+        module_name = scmd.python_module or args.target
         module_spec = find_spec(module_name)
         if module_spec is None:
             raise ImportError(f"Module {args.f} not found")
